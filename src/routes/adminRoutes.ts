@@ -20,6 +20,9 @@ router.post('/promoteurs/:id/compliance/review', AdminController.reviewComplianc
 router.post('/promoteurs/:id/apply-plan-change', AdminController.applyPlanChange);
 
 // Projects moderation
+router.get('/projects', AdminController.getProjects);
+router.get('/activities/recent', AdminController.getRecentActivity);
+router.get('/alerts', AdminController.getAlerts);
 router.post('/projects/:id/moderate', AdminController.moderateProject);
 router.post('/projects/:id/feature', AdminController.setProjectFeatured);
 

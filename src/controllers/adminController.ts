@@ -7,6 +7,7 @@ import Appeal from '../models/Appeal';
 import Report from '../models/Report';
 import Badge from '../models/Badge';
 import Document from '../models/Document';
+import Alert from '../models/Alert';
 import { AuditLogService } from '../services/AuditLogService';
 import { TrustScoreService } from '../services/TrustScoreService';
 import { NotificationService } from '../services/NotificationService';
@@ -91,6 +92,73 @@ export class AdminController {
   }
 
   /**
+   * Get all projects (admin view, includes unpublished/pending)
+   */
+  static async getProjects(req: AuthRequest, res: Response) {
+    try {
+      const {
+        country,
+        city,
+        projectType,
+        minPrice,
+        maxPrice,
+        minScore,
+        status,
+        search,
+        sort = '-createdAt',
+        page = 1,
+        limit = 20,
+      } = req.query;
+
+      const query: any = {};
+
+      // Filters
+      if (country) query.country = country;
+      if (city) query.city = city;
+      if (projectType) query.projectType = projectType;
+      if (minPrice || maxPrice) {
+        query.priceFrom = {};
+        if (minPrice) query.priceFrom.$gte = Number(minPrice);
+        if (maxPrice) query.priceFrom.$lte = Number(maxPrice);
+      }
+      if (minScore) query.trustScore = { $gte: Number(minScore) };
+      if (status) query.publicationStatus = status;
+
+      if (search) {
+        query.$or = [
+          { title: { $regex: search, $options: 'i' } },
+          { description: { $regex: search, $options: 'i' } },
+          { area: { $regex: search, $options: 'i' } },
+        ];
+      }
+
+      const skip = (Number(page) - 1) * Number(limit);
+
+      // For admins include moderation notes & unpublished projects
+      const projects = await Project.find(query)
+        .sort(sort as string)
+        .limit(Number(limit))
+        .skip(skip)
+        .populate('promoteur', 'organizationName trustScore badges plan');
+
+      const total = await Project.countDocuments(query);
+
+      res.json({
+        projects,
+        pagination: {
+          total,
+          page: Number(page),
+          pages: Math.ceil(total / Number(limit)),
+          limit: Number(limit),
+        },
+      });
+    } catch (error) {
+      console.error('Error getting admin projects:', error);
+      res.status(500).json({ message: 'Server error' });
+    }
+  }
+
+  /**
    * Verify promoteur KYC
    */
   static async verifyKYC(req: AuthRequest, res: Response) {
@@ -160,6 +228,50 @@ export class AdminController {
       res.json({ promoteur });
     } catch (error) {
       console.error('Error verifying KYC:', error);
+      res.status(500).json({ message: 'Server error' });
+    }
+  }
+
+  /**
+   * Admin: recent activity for dashboard
+   */
+  static async getRecentActivity(req: AuthRequest, res: Response) {
+    try {
+      const { limit = 10 } = req.query;
+      const { logs } = await AuditLogService.getLogs({ limit: Number(limit) });
+
+      const activities = logs.map((l: any) => ({
+        id: l._id,
+        type: l.category,
+        actor: l.actor,
+        message: l.description,
+        metadata: l.metadata,
+        timestamp: l.timestamp,
+      }));
+
+      res.json(activities);
+    } catch (error) {
+      console.error('Error getting recent activity:', error);
+      res.status(500).json({ message: 'Server error' });
+    }
+  }
+
+  /**
+   * Admin: list alerts
+   */
+  static async getAlerts(req: AuthRequest, res: Response) {
+    try {
+      const { page = 1, limit = 50, isActive } = req.query;
+      const query: any = {};
+      if (isActive !== undefined) query.isActive = isActive === 'true';
+
+      const skip = (Number(page) - 1) * Number(limit);
+      const alerts = await Alert.find(query).sort({ createdAt: -1 }).limit(Number(limit)).skip(skip);
+      const total = await Alert.countDocuments(query);
+
+      res.json({ alerts, pagination: { total, page: Number(page), pages: Math.ceil(total / Number(limit)), limit: Number(limit) } });
+    } catch (error) {
+      console.error('Error getting admin alerts:', error);
       res.status(500).json({ message: 'Server error' });
     }
   }
