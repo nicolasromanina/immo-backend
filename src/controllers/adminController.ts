@@ -10,6 +10,7 @@ import Document from '../models/Document';
 import Alert from '../models/Alert';
 import { AuditLogService } from '../services/AuditLogService';
 import { TrustScoreService } from '../services/TrustScoreService';
+import { AdvancedTrustScoreService } from '../services/AdvancedTrustScoreService';
 import { NotificationService } from '../services/NotificationService';
 import { BadgeService } from '../services/BadgeService';
 import { DocumentExpiryService } from '../services/DocumentExpiryService';
@@ -87,6 +88,31 @@ export class AdminController {
       });
     } catch (error) {
       console.error('Error getting promoteurs:', error);
+      res.status(500).json({ message: 'Server error' });
+    }
+  }
+
+  /**
+   * Get a promoteur by ID (admin)
+   */
+  static async getPromoteur(req: AuthRequest, res: Response) {
+    try {
+      const { id } = req.params;
+
+      const promoteur = await Promoteur.findById(id)
+        .populate('user', 'email firstName lastName')
+        .populate('badges.badgeId')
+        .populate('teamMembers.userId', 'firstName lastName email');
+
+      console.log('[AdminController.getPromoteur] requested id:', id, 'found:', promoteur ? promoteur._id : null);
+
+      if (!promoteur) {
+        return res.status(404).json({ message: 'Promoteur not found' });
+      }
+
+      res.json({ promoteur });
+    } catch (error) {
+      console.error('Error getting promoteur:', error);
       res.status(500).json({ message: 'Server error' });
     }
   }
@@ -726,6 +752,36 @@ export class AdminController {
       res.json({ promoteur });
     } catch (error) {
       console.error('Error awarding badge:', error);
+      res.status(500).json({ message: 'Server error' });
+    }
+  }
+
+  /**
+   * Apply a global manual correction (percentage)
+   */
+  static async applyBadgeCorrection(req: AuthRequest, res: Response) {
+    try {
+      const { value } = req.body;
+
+      if (typeof value !== 'number' || value < 0 || value > 100) {
+        return res.status(400).json({ message: 'Invalid value; must be 0-100' });
+      }
+
+      const updatedCount = await AdvancedTrustScoreService.applyGlobalCorrection(value);
+
+      await AuditLogService.logFromRequest(
+        req,
+        'apply_badge_correction',
+        'moderation',
+        `Applied global badge correction: ${value}%`,
+        'System',
+        undefined,
+        { value }
+      );
+
+      res.json({ updated: updatedCount });
+    } catch (error) {
+      console.error('Error applying badge correction:', error);
       res.status(500).json({ message: 'Server error' });
     }
   }

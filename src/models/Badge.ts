@@ -5,6 +5,7 @@ export interface IBadge extends Document {
   slug: string;
   description: string;
   icon: string;
+  iconBg?: string;
   category: 'verification' | 'performance' | 'trust' | 'engagement' | 'special';
   
   // Badge criteria
@@ -39,6 +40,7 @@ const BadgeSchema: Schema = new Schema({
   slug: { type: String, required: true, unique: true, lowercase: true },
   description: { type: String, required: true },
   icon: { type: String, required: true },
+  iconBg: { type: String, default: 'bg-blue-500' },
   category: { 
     type: String, 
     enum: ['verification', 'performance', 'trust', 'engagement', 'special'],

@@ -310,7 +310,7 @@ export class FeaturedService {
     const skip = (page - 1) * limit;
 
     const slots = await FeaturedSlot.find(query)
-      .populate('entity', 'title organizationName')
+      .populate('entity', 'title organizationName plan subscriptionStatus logo')
       .populate('createdBy', 'email')
       .sort({ createdAt: -1 })
       .skip(skip)
@@ -327,5 +327,89 @@ export class FeaturedService {
         limit,
       },
     };
+  }
+
+  /**
+   * Approve a slot (admin)
+   */
+  static async approveSlot(slotId: string) {
+    const slot = await FeaturedSlot.findById(slotId);
+    if (!slot) return null;
+
+    slot.status = 'active';
+    await slot.save();
+
+    // If slot relates to a project, ensure project isFeatured is set
+    if (slot.entityType === 'project') {
+      await Project.findByIdAndUpdate(slot.entity, {
+        isFeatured: true,
+        featuredUntil: slot.endDate,
+      });
+    }
+
+    return slot;
+  }
+
+  /**
+   * Reject a slot (admin) — set cancelled with optional reason
+   */
+  static async rejectSlot(slotId: string, reason?: string) {
+    const slot = await FeaturedSlot.findById(slotId);
+    if (!slot) return null;
+
+    slot.status = 'cancelled';
+    if (reason) slot.notes = `${slot.notes || ''}\n[Admin rejection] ${reason}`.trim();
+    await slot.save();
+
+    // If project, clear isFeatured if no other active slots
+    if (slot.entityType === 'project') {
+      const otherActive = await FeaturedSlot.countDocuments({
+        entity: slot.entity,
+        entityType: 'project',
+        status: 'active',
+        _id: { $ne: slotId },
+      });
+
+      if (otherActive === 0) {
+        await Project.findByIdAndUpdate(slot.entity, {
+          isFeatured: false,
+          featuredUntil: undefined,
+        });
+      }
+    }
+
+    return slot;
+  }
+
+  /**
+   * Update a slot (admin)
+   */
+  static async updateSlot(slotId: string, data: Partial<any>) {
+    const slot = await FeaturedSlot.findByIdAndUpdate(slotId, data, { new: true });
+
+    if (!slot) return null;
+
+    // If dates changed and slot active, ensure project flag matches
+    if (slot.entityType === 'project') {
+      const activeSlots = await FeaturedSlot.countDocuments({
+        entity: slot.entity,
+        entityType: 'project',
+        status: 'active',
+      });
+
+      if (activeSlots > 0) {
+        await Project.findByIdAndUpdate(slot.entity, {
+          isFeatured: true,
+          featuredUntil: slot.endDate,
+        });
+      } else {
+        await Project.findByIdAndUpdate(slot.entity, {
+          isFeatured: false,
+          featuredUntil: undefined,
+        });
+      }
+    }
+
+    return slot;
   }
 }

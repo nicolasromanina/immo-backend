@@ -167,6 +167,59 @@ export class FeaturedController {
   }
 
   /**
+   * Approve slot (admin)
+   */
+  static async approveSlot(req: AuthRequest, res: Response) {
+    try {
+      const { id } = req.params;
+
+      const slot = await FeaturedService.approveSlot(id);
+      if (!slot) return res.status(404).json({ message: 'Slot not found' });
+
+      res.json({ slot });
+    } catch (error) {
+      console.error('Error approving slot:', error);
+      res.status(500).json({ message: 'Server error' });
+    }
+  }
+
+  /**
+   * Reject slot (admin)
+   */
+  static async rejectSlot(req: AuthRequest, res: Response) {
+    try {
+      const { id } = req.params;
+      const { reason } = req.body;
+
+      const slot = await FeaturedService.rejectSlot(id, reason);
+      if (!slot) return res.status(404).json({ message: 'Slot not found' });
+
+      res.json({ slot });
+    } catch (error) {
+      console.error('Error rejecting slot:', error);
+      res.status(500).json({ message: 'Server error' });
+    }
+  }
+
+  /**
+   * Update slot (admin)
+   */
+  static async updateSlot(req: AuthRequest, res: Response) {
+    try {
+      const { id } = req.params;
+      const data = req.body;
+
+      const slot = await FeaturedService.updateSlot(id, data);
+      if (!slot) return res.status(404).json({ message: 'Slot not found' });
+
+      res.json({ slot });
+    } catch (error) {
+      console.error('Error updating slot:', error);
+      res.status(500).json({ message: 'Server error' });
+    }
+  }
+
+  /**
    * Run auto-feature job (admin)
    */
   static async runAutoFeature(req: AuthRequest, res: Response) {

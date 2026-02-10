@@ -410,6 +410,31 @@ export class AdvancedTrustScoreService {
   }
 
   /**
+   * Apply a global correction (percentage multiplier) to all promoteur trust scores
+   * Example: value = 10 => increase each score by 10% (score * 1.10), clamped to [0,100]
+   */
+  static async applyGlobalCorrection(value: number) {
+    const promoteurs = await Promoteur.find({});
+    let updated = 0;
+
+    for (const promoteur of promoteurs) {
+      try {
+        const oldScore = Math.max(0, Math.min(100, Math.round(promoteur.trustScore || 0)));
+        const newScore = Math.max(0, Math.min(100, Math.round(oldScore * (1 + value / 100))));
+        if (newScore !== oldScore) {
+          promoteur.trustScore = newScore;
+          await promoteur.save();
+          updated++;
+        }
+      } catch (error) {
+        console.error(`Error applying correction for ${promoteur._id}:`, error);
+      }
+    }
+
+    return updated;
+  }
+
+  /**
    * Get score history (would need a ScoreHistory model in production)
    */
   static async getScoreHistory(promoteurId: string, days: number = 30) {
