@@ -1,7 +1,11 @@
 import { Router } from 'express';
+import multer from 'multer';
 import { ProjectController } from '../controllers/projectController';
 import { authenticateJWT, authorizeRoles } from '../middlewares/auth';
 import { Role } from '../config/roles';
+import { validateUpload } from '../middlewares/uploadValidation';
+
+const upload = multer({ storage: multer.memoryStorage() });
 
 const router = Router();
 
@@ -20,7 +24,13 @@ router.delete('/:id', authenticateJWT, authorizeRoles(Role.PROMOTEUR, Role.ADMIN
 router.post('/:id/submit', authenticateJWT, authorizeRoles(Role.PROMOTEUR, Role.ADMIN), ProjectController.submitForPublication);
 
 // Media management
-router.post('/:id/media/cover', authenticateJWT, authorizeRoles(Role.PROMOTEUR, Role.ADMIN), ProjectController.setProjectCoverImage);
+router.post('/:id/media/cover',
+  authenticateJWT,
+  authorizeRoles(Role.PROMOTEUR, Role.ADMIN),
+  upload.single('file'),
+  validateUpload({ allowedCategories: ['image'], maxFileSize: 20 * 1024 * 1024, requireFile: true, fieldName: 'file' }),
+  ProjectController.setProjectCoverImage
+);
 router.post('/:id/media/:mediaType', authenticateJWT, authorizeRoles(Role.PROMOTEUR, Role.ADMIN), ProjectController.addProjectMedia);
 router.delete('/:id/media/:mediaType', authenticateJWT, authorizeRoles(Role.PROMOTEUR, Role.ADMIN), ProjectController.removeProjectMedia);
 

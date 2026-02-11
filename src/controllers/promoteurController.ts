@@ -913,21 +913,38 @@ export class PromoteurController {
    */
   static async inviteTeamMember(req: AuthRequest, res: Response) {
     try {
+      console.log('[inviteTeamMember] req.body:', req.body);
       const user = await User.findById(req.user!.id);
+      console.log('[inviteTeamMember] user.promoteurProfile:', user?.promoteurProfile);
       if (!user?.promoteurProfile) {
+        console.log('[inviteTeamMember] promoteurProfile not found for user:', req.user!.id);
         return res.status(404).json({ message: 'Promoteur profile not found' });
       }
 
       const { email, role } = req.body;
-      const invitation = await InvitationService.createInvitation(
-        user.promoteurProfile.toString(),
-        email,
-        role,
-        req.user!.id
-      );
-
-      res.status(201).json({ invitation });
+      if (!email || !role) {
+        console.log('[inviteTeamMember] Missing email or role:', req.body);
+        return res.status(400).json({ message: 'Email and role are required' });
+      }
+      // Log Promoteur existence
+      const promoteurId = user.promoteurProfile.toString();
+      const promoteur = await require('../models/Promoteur').default.findById(promoteurId);
+      console.log('[inviteTeamMember] Promoteur.findById:', promoteurId, promoteur);
+      try {
+        const invitation = await InvitationService.createInvitation(
+          promoteurId,
+          email,
+          role,
+          req.user!.id
+        );
+        console.log('[inviteTeamMember] Invitation created:', invitation);
+        res.status(201).json({ invitation });
+      } catch (serviceError: any) {
+        console.log('[inviteTeamMember] Error from InvitationService:', serviceError);
+        res.status(400).json({ message: serviceError.message });
+      }
     } catch (error: any) {
+      console.log('[inviteTeamMember] Unexpected error:', error);
       res.status(400).json({ message: error.message });
     }
   }

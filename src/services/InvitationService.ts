@@ -217,7 +217,7 @@ export class InvitationService {
 
     if (!promoteur || !inviter) return;
 
-    const acceptUrl = `${process.env.FRONTEND_URL}/invitations/accept/${invitation.token}`;
+    const acceptUrl = `${process.env.FRONTEND_URL}/accept-invitation/${invitation.token}`;
 
     await sendEmail({
       to: invitation.email,

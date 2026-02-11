@@ -1,13 +1,16 @@
 import mongoose from 'mongoose';
+import { config } from './env.config';
 
-const MONGO_URI = process.env.MONGO_URI || 'mongodb://realestate-platform';
-
-export const connectDB = async () => {
+export const connectDB = async (): Promise<void> => {
   try {
-    await mongoose.connect(MONGO_URI);
-    console.log('MongoDB connected');
+    await mongoose.connect(config.MONGO_URI);
+    console.log('✅ MongoDB connected successfully');
   } catch (error) {
-    console.error('MongoDB connection error:', error);
+    console.error('❌ MongoDB connection error:', error);
     process.exit(1);
   }
 };
+
+mongoose.connection.on('error', (err) => {
+  console.error('MongoDB connection error:', err);
+});

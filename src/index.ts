@@ -25,6 +25,7 @@ import { startAutomatedSanctionsJob } from './jobs/automatedSanctionsJob';
 import { startSLAMonitoringJob } from './jobs/slaMonitoringJob';
 import { startBadgeExpirationJob } from './jobs/badgeExpirationJob';
 import { startPriceRecalculationJob } from './jobs/priceRecalculationJob';
+import { startOnboardingReminderJob } from './jobs/onboardingReminderJob';
 
 const PORT = process.env.PORT || 5000;
 
@@ -50,6 +51,7 @@ connectDB().then(() => {
 	startSLAMonitoringJob();
 	startBadgeExpirationJob();
 	startPriceRecalculationJob();
+	startOnboardingReminderJob();
 	
 	app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
 });

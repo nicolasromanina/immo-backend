@@ -37,6 +37,7 @@ import travelPlanRoutes from './routes/travelPlanRoutes';
 import priceAnalyticsRoutes from './routes/priceAnalyticsRoutes';
 import geoPhotoRoutes from './routes/geoPhotoRoutes';
 import autoBrochureRoutes from './routes/autoBrochureRoutes';
+import ChatRoutes from './routes/chatRoutes';
 // New feature routes - v3
 import reportRoutes from './routes/reportRoutes';
 import questionRoutes from './routes/questionRoutes';
@@ -97,7 +98,7 @@ app.use('/api/updates', updateRoutes);
 app.use('/api/documents', documentRoutes);
 app.use('/api/client', clientRoutes);
 app.use('/api/admin', adminRoutes);
-
+app.use('/api/chat', ChatRoutes);
 // New Routes
 app.use('/api/templates', templateRoutes);
 app.use('/api/appeals', appealRoutes);

@@ -6,7 +6,7 @@ export interface INotification extends Document {
   updatedAt: Date;
   
   // Notification details
-  type: 'lead' | 'update' | 'project' | 'badge' | 'appeal' | 'system' | 'warning';
+  type: 'lead' | 'update' | 'project' | 'badge' | 'appeal' | 'system' | 'warning' | 'achievement' | 'reminder';
   title: string;
   message: string;
   
@@ -44,10 +44,12 @@ const NotificationSchema: Schema = new Schema({
   
   type: { 
     type: String, 
-    enum: ['lead', 'update', 'project', 'badge', 'appeal', 'system', 'warning'],
+    enum: ['lead', 'update', 'project', 'badge', 'appeal', 'system', 'warning', 'achievement', 'reminder'],
     required: true,
     index: true
   },
+  // Optional arbitrary data useful for scheduling/deduplication
+  data: { type: Schema.Types.Mixed, default: {} },
   title: { type: String, required: true },
   message: { type: String, required: true },
   

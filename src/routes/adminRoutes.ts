@@ -19,6 +19,8 @@ router.post('/promoteurs/:id/verify-kyc', AdminController.verifyKYC);
 router.post('/promoteurs/:id/restrict', AdminController.applyRestriction);
 router.post('/promoteurs/:id/compliance/review', AdminController.reviewComplianceRequest);
 router.post('/promoteurs/:id/apply-plan-change', AdminController.applyPlanChange);
+// Admin: force-send onboarding reminder to a specific promoteur (for testing)
+router.post('/promoteurs/:id/send-onboarding-reminder', AdminController.sendOnboardingReminder);
 
 // Projects moderation
 router.get('/projects', AdminController.getProjects);

@@ -42,4 +42,28 @@ export class CloudinaryService {
       tags: params.tags,
     };
   }
+
+  static async uploadBuffer(buffer: Buffer, options: { folder?: string; publicId?: string; resourceType?: 'image' | 'auto' } = {}) {
+    if (!cloudName || !apiKey || !apiSecret) {
+      throw new Error('Cloudinary environment variables are not configured');
+    }
+
+    return await new Promise<any>((resolve, reject) => {
+      const uploadStream = cloudinary.uploader.upload_stream(
+        {
+          folder: options.folder,
+          public_id: options.publicId,
+          resource_type: options.resourceType || 'image',
+          overwrite: true,
+        },
+        (error, result) => {
+          if (error) return reject(error);
+          resolve(result);
+        }
+      );
+
+      // Write buffer to the upload stream
+      uploadStream.end(buffer);
+    });
+  }
 }

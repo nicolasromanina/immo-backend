@@ -14,6 +14,7 @@ import { AdvancedTrustScoreService } from '../services/AdvancedTrustScoreService
 import { NotificationService } from '../services/NotificationService';
 import { BadgeService } from '../services/BadgeService';
 import { DocumentExpiryService } from '../services/DocumentExpiryService';
+import { sendOnboardingReminderForPromoteur } from '../jobs/onboardingReminderJob';
 
 export class AdminController {
   /**
@@ -113,6 +114,35 @@ export class AdminController {
       res.json({ promoteur });
     } catch (error) {
       console.error('Error getting promoteur:', error);
+      res.status(500).json({ message: 'Server error' });
+    }
+  }
+
+  /**
+   * Admin: force send onboarding reminder to a promoteur (for testing)
+   */
+  static async sendOnboardingReminder(req: AuthRequest, res: Response) {
+    try {
+      const { id } = req.params;
+      const { offsetMinutes } = req.body; // optional - send specific offset
+
+      const promoteur = await Promoteur.findById(id).populate('user', 'email firstName');
+      if (!promoteur) return res.status(404).json({ message: 'Promoteur not found' });
+
+      const result = await sendOnboardingReminderForPromoteur(promoteur._id.toString(), offsetMinutes ? Number(offsetMinutes) : undefined);
+
+      await AuditLogService.logFromRequest(
+        req,
+        'admin_send_onboarding_reminder',
+        'promoteur',
+        `Admin triggered onboarding reminder for promoteur ${promoteur._id}`,
+        'Promoteur',
+        promoteur._id.toString(),
+      );
+
+      res.json({ success: true, result });
+    } catch (error) {
+      console.error('Error sending onboarding reminder:', error);
       res.status(500).json({ message: 'Server error' });
     }
   }

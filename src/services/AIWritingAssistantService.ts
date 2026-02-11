@@ -24,7 +24,7 @@ interface AIWritingResponse {
 export class AIWritingAssistantService {
   private static readonly GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
   private static readonly GROQ_API_KEY = process.env.GROQ_API_KEY;
-  private static readonly MODEL = process.env.GROQ_MODEL || 'llama-3.1-70b-versatile';
+  private static readonly MODEL = process.env.GROQ_MODEL || 'llama-3.1-8b-instant';
 
   /**
    * Generate text using Groq AI

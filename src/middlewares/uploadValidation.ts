@@ -88,12 +88,19 @@ export function validateUpload(options: UploadValidationOptions = {}) {
     customAllowedMimes,
   } = options;
 
+  function respondWithBadRequest(res: Response, message: string, details?: any) {
+    console.warn('[uploadValidation] Reject upload:', { message, details });
+    res.status(400).json({ message, error: message, details });
+  }
+
   return (req: Request, res: Response, next: NextFunction): void => {
     // Check if files exist
     const files = (req as any).files || ((req as any).file ? [(req as any).file] : []);
 
+    console.debug('[uploadValidation] validating files count:', files.length, 'allowedCategories:', allowedCategories);
+
     if (requireFile && files.length === 0) {
-      res.status(400).json({ error: 'Fichier requis' });
+      respondWithBadRequest(res, 'Fichier requis');
       return;
     }
 
@@ -103,9 +110,7 @@ export function validateUpload(options: UploadValidationOptions = {}) {
 
     // Check file count
     if (files.length > maxFiles) {
-      res.status(400).json({
-        error: `Nombre maximum de fichiers dépassé (max: ${maxFiles})`,
-      });
+      respondWithBadRequest(res, `Nombre maximum de fichiers dépassé (max: ${maxFiles})`, { maxFiles, found: files.length });
       return;
     }
 
@@ -117,36 +122,26 @@ export function validateUpload(options: UploadValidationOptions = {}) {
       // 1. File extension check
       const ext = path.extname(file.originalname || '').toLowerCase();
       if (!allowedExtensions.includes(ext)) {
-        res.status(400).json({
-          error: `Type de fichier non autorisé: ${ext}`,
-          allowed: allowedExtensions,
-        });
+        respondWithBadRequest(res, `Type de fichier non autorisé: ${ext}`, { allowedExtensions, ext, filename: file.originalname });
         return;
       }
 
       // 2. MIME type check
       if (file.mimetype && !allowedMimes.includes(file.mimetype)) {
-        res.status(400).json({
-          error: `Type MIME non autorisé: ${file.mimetype}`,
-          allowed: allowedMimes,
-        });
+        respondWithBadRequest(res, `Type MIME non autorisé: ${file.mimetype}`, { allowedMimes, mimetype: file.mimetype, filename: file.originalname });
         return;
       }
 
       // 3. File size check
       const effectiveMaxSize = maxFileSize || getMaxSize(ext);
       if (file.size && file.size > effectiveMaxSize) {
-        res.status(400).json({
-          error: `Fichier trop volumineux: ${(file.size / 1024 / 1024).toFixed(1)} Mo (max: ${(effectiveMaxSize / 1024 / 1024).toFixed(1)} Mo)`,
-        });
+        respondWithBadRequest(res, `Fichier trop volumineux: ${(file.size / 1024 / 1024).toFixed(1)} Mo (max: ${(effectiveMaxSize / 1024 / 1024).toFixed(1)} Mo)`, { size: file.size, max: effectiveMaxSize, filename: file.originalname });
         return;
       }
 
       // 4. Filename sanitization check
       if (hasDangerousFilename(file.originalname)) {
-        res.status(400).json({
-          error: 'Nom de fichier non autorisé (extension dangereuse)',
-        });
+        respondWithBadRequest(res, 'Nom de fichier non autorisé (extension dangereuse)', { filename: file.originalname });
         return;
       }
 
@@ -154,9 +149,7 @@ export function validateUpload(options: UploadValidationOptions = {}) {
       if (file.buffer) {
         const dangerousContent = detectDangerousContent(file.buffer);
         if (dangerousContent) {
-          res.status(400).json({
-            error: `Fichier potentiellement dangereux détecté: ${dangerousContent}`,
-          });
+          respondWithBadRequest(res, `Fichier potentiellement dangereux détecté: ${dangerousContent}`, { filename: file.originalname, signature: dangerousContent });
           return;
         }
       }

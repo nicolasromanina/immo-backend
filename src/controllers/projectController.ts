@@ -441,8 +441,10 @@ export class ProjectController {
   static async setProjectCoverImage(req: AuthRequest, res: Response) {
     try {
       const { id } = req.params;
-      const { url, mimeType, sizeBytes } = req.body;
+      const { url: bodyUrl, mimeType: bodyMime, sizeBytes: bodySize } = req.body;
       const user = await User.findById(req.user!.id);
+
+      console.debug(`[ProjectController.setProjectCoverImage] incoming request for project ${id} bodyUrl=${bodyUrl}`, { hasFile: !!(req as any).file });
 
       const project = await Project.findById(id);
       if (!project) {
@@ -453,29 +455,86 @@ export class ProjectController {
         return res.status(403).json({ message: 'Not authorized' });
       }
 
-      const config = { maxSize: 20 * 1024 * 1024, mimeTypes: ['image/jpeg', 'image/png', 'image/webp'] };
-      const error = ProjectController.validateMediaItem({ url, mimeType, sizeBytes }, config);
-      if (error) {
-        return res.status(400).json({ message: error });
+      // If a file was uploaded via multipart/form-data, upload to Cloudinary
+      const uploadedFile = (req as any).file as { buffer?: Buffer; mimetype?: string; size?: number; originalname?: string } | undefined;
+      if (uploadedFile && uploadedFile.buffer) {
+        console.debug('[ProjectController.setProjectCoverImage] uploaded file info:', { originalname: uploadedFile.originalname, mimetype: uploadedFile.mimetype, size: uploadedFile.size });
+
+        // Validate mime/size quickly
+        const config = { maxSize: 20 * 1024 * 1024, mimeTypes: ['image/jpeg', 'image/png', 'image/webp'] };
+        const mime = uploadedFile.mimetype || 'application/octet-stream';
+        const size = uploadedFile.size || 0;
+
+        const mimeError = config.mimeTypes.includes(mime) ? null : 'Unsupported media format';
+        if (mimeError) {
+          console.warn('[ProjectController.setProjectCoverImage] reject file - mime not allowed', { mime, filename: uploadedFile.originalname });
+          return res.status(400).json({ message: mimeError });
+        }
+        if (size > config.maxSize) {
+          console.warn('[ProjectController.setProjectCoverImage] reject file - too large', { size, maxSize: config.maxSize, filename: uploadedFile.originalname });
+          return res.status(400).json({ message: 'File too large' });
+        }
+
+        // Upload buffer to Cloudinary
+        try {
+          const { CloudinaryService } = await import('../services/CloudinaryService');
+          const folder = `projects/${project._id}/cover`;
+          const publicId = `cover_${Date.now()}`;
+          const result = await CloudinaryService.uploadBuffer(uploadedFile.buffer!, { folder, publicId, resourceType: 'image' });
+          const finalUrl = result.secure_url || result.url;
+
+          project.media.coverImage = finalUrl;
+          await project.save();
+
+          const trustScore = await TrustScoreService.calculateProjectTrustScore(project._id.toString());
+          project.trustScore = trustScore;
+          await project.save();
+
+          await AuditLogService.logFromRequest(
+            req,
+            'set_project_cover',
+            'project',
+            'Uploaded and set project cover image via Cloudinary',
+            'Project',
+            project._id.toString(),
+            { publicId, folder }
+          );
+
+          return res.json({ project, uploaded: { publicId, folder, url: finalUrl } });
+        } catch (err: any) {
+          console.error('Cloudinary upload failed:', err?.message || err, err?.stack || err);
+          return res.status(500).json({ message: 'Image upload failed', error: err?.message });
+        }
       }
 
-      project.media.coverImage = url;
-      await project.save();
+      // Fallback: if client provided url/mime/size in body
+      if (bodyUrl) {
+        const config = { maxSize: 20 * 1024 * 1024, mimeTypes: ['image/jpeg', 'image/png', 'image/webp'] };
+        const error = ProjectController.validateMediaItem({ url: bodyUrl, mimeType: bodyMime, sizeBytes: bodySize }, config);
+        if (error) {
+          return res.status(400).json({ message: error });
+        }
 
-      const trustScore = await TrustScoreService.calculateProjectTrustScore(project._id.toString());
-      project.trustScore = trustScore;
-      await project.save();
+        project.media.coverImage = bodyUrl;
+        await project.save();
 
-      await AuditLogService.logFromRequest(
-        req,
-        'set_project_cover',
-        'project',
-        'Updated project cover image',
-        'Project',
-        project._id.toString()
-      );
+        const trustScore = await TrustScoreService.calculateProjectTrustScore(project._id.toString());
+        project.trustScore = trustScore;
+        await project.save();
 
-      res.json({ project });
+        await AuditLogService.logFromRequest(
+          req,
+          'set_project_cover',
+          'project',
+          'Updated project cover image via provided URL',
+          'Project',
+          project._id.toString()
+        );
+
+        return res.json({ project });
+      }
+
+      return res.status(400).json({ message: 'No file or url provided' });
     } catch (error) {
       console.error('Error setting project cover:', error);
       res.status(500).json({ message: 'Server error' });

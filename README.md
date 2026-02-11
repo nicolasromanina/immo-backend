@@ -44,6 +44,7 @@ cd backend
 npm install
 cp .env.example .env
 # Edit .env with your configuration
+# Optional: configure onboarding reminders via ONBOARDING_REMINDER_OFFSETS (comma-separated minutes). Example for production: `2880,1440` (2 days, 1 day). For development: `20,10` for quick testing.
 npm run dev
 ```
 
