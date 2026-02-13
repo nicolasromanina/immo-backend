@@ -4,6 +4,7 @@ import OrganizationInvitation from '../models/OrganizationInvitation';
 import Promoteur from '../models/Promoteur';
 import User from '../models/User';
 import { sendEmail } from '../utils/emailService';
+import { Role } from '../config/roles';
 
 export class InvitationService {
   static async createInvitation(
@@ -54,6 +55,30 @@ export class InvitationService {
     return invitation;
   }
 
+  static async resendInvitation(invitationId: string, promoteurId: string, userId: string) {
+    const invitation = await OrganizationInvitation.findOne({ 
+      _id: invitationId, 
+      promoteur: promoteurId 
+    });
+    
+    if (!invitation) {
+      throw new Error('Invitation not found');
+    }
+    
+    if (invitation.status !== 'pending') {
+      throw new Error('Seules les invitations en attente peuvent être renvoyées');
+    }
+    
+    // Générer un nouveau token et date d'expiration
+    invitation.token = nanoid(32);
+    invitation.expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+    await invitation.save();
+    
+    await this.sendInvitationEmail(invitation);
+    
+    return invitation;
+  }
+
   static async acceptInvitation(token: string, userId: string) {
     const invitation = await OrganizationInvitation.findOne({
       token,
@@ -70,13 +95,47 @@ export class InvitationService {
       throw new Error('Invitation has expired');
     }
 
-    if (invitation.email !== (await User.findById(userId))?.email) {
+    // Récupérer l'utilisateur
+    const user = await User.findById(userId);
+    if (!user) {
+      throw new Error('User not found');
+    }
+
+    if (invitation.email !== user.email) {
       throw new Error('Email does not match invitation');
     }
 
-    // Add user to team
-    const promoteur = await Promoteur.findById(invitation.promoteur);
+    // S'assurer que l'utilisateur a le rôle promoteur
+    if (!user.roles.includes(Role.PROMOTEUR)) {
+      user.roles.push(Role.PROMOTEUR);
+    }
+
+    // Add user to team et lier promoteurProfile
+    let promoteur = await Promoteur.findById(invitation.promoteur);
     if (!promoteur) throw new Error('Promoteur not found');
+    if (!user.promoteurProfile) {
+      const updatedUser = await User.findOneAndUpdate(
+        { _id: userId },
+        { promoteurProfile: promoteur._id },
+        { new: true }
+      );
+      console.log('[InvitationService.acceptInvitation] userId:', userId, 'promoteurId:', promoteur._id);
+      console.log('[InvitationService.acceptInvitation] promoteurProfile after update:', updatedUser?.promoteurProfile);
+    }
+
+    // Déterminer le plan à appliquer selon le rôle de l'invitant (owner)
+    // Si l'invitant (owner) est admin, plan premium, sinon standard
+    let planToSet = promoteur.plan;
+    try {
+      const ownerUser = await User.findById(promoteur.user);
+      if (ownerUser && ownerUser.roles.includes(Role.ADMIN)) {
+        planToSet = 'premium';
+      } else {
+        planToSet = 'standard';
+      }
+    } catch (e) {
+      // fallback: ne rien changer
+    }
 
     // Check if already a member
     const isAlreadyMember = promoteur.teamMembers.some(member =>
@@ -93,6 +152,11 @@ export class InvitationService {
       addedAt: new Date()
     });
 
+    // Mettre à jour le plan si besoin
+    if (promoteur.plan !== planToSet) {
+      promoteur.plan = planToSet;
+    }
+
     await promoteur.save();
 
     // Update invitation
@@ -101,7 +165,9 @@ export class InvitationService {
     invitation.acceptedBy = userId as any;
     await invitation.save();
 
-    return { promoteur, invitation };
+    // Récupérer le user mis à jour pour garantir la cohérence
+    const updatedUser = await User.findById(userId);
+    return { promoteur, invitation, user: updatedUser };
   }
 
   static async cancelInvitation(invitationId: string, promoteurId: string) {

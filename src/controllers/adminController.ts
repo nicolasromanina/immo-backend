@@ -289,6 +289,56 @@ export class AdminController {
   }
 
   /**
+   * Admin: verify or reject a single KYC document for a promoteur
+   */
+  static async verifyKYCDocument(req: AuthRequest, res: Response) {
+    try {
+      // DEBUG LOG
+      console.log('[ADMIN] verifyKYCDocument params:', req.params, 'body:', req.body);
+      const { promoteurId, docId } = req.params;
+      const { approved, rejectionReason } = req.body;
+
+      const promoteur = await Promoteur.findById(promoteurId).populate('user');
+      if (!promoteur) {
+        return res.status(404).json({ message: 'Promoteur not found' });
+      }
+      const doc = promoteur.kycDocuments.find((d: any) => (d._id?.toString() || d.id?.toString()) === docId);
+      if (!doc) {
+        return res.status(404).json({ message: 'KYC document not found' });
+      }
+      if (approved) {
+        doc.status = 'verified';
+      } else {
+        doc.status = 'rejected';
+        doc.rejectionReason = rejectionReason || '';
+      }
+      // If all docs are verified, set global KYC status to verified
+      if (promoteur.kycDocuments.length > 0 && promoteur.kycDocuments.every((d: any) => d.status === 'verified')) {
+        promoteur.kycStatus = 'verified';
+        // Recalculate trust score
+        await TrustScoreService.updateAllScores(promoteurId);
+      } else if (promoteur.kycDocuments.some((d: any) => d.status === 'rejected')) {
+        promoteur.kycStatus = 'rejected';
+      } else {
+        promoteur.kycStatus = 'submitted';
+      }
+      await promoteur.save();
+      await AuditLogService.logFromRequest(
+        req,
+        approved ? 'verify_kyc_doc' : 'reject_kyc_doc',
+        'moderation',
+        `${approved ? 'Verified' : 'Rejected'} KYC document for ${promoteur.organizationName}`,
+        'Promoteur',
+        promoteurId
+      );
+      res.json({ promoteur });
+    } catch (error) {
+      console.error('Error verifying KYC document:', error);
+      res.status(500).json({ message: 'Server error' });
+    }
+  }
+
+  /**
    * Admin: recent activity for dashboard
    */
   static async getRecentActivity(req: AuthRequest, res: Response) {
@@ -399,19 +449,23 @@ export class AdminController {
   static async moderateProject(req: AuthRequest, res: Response) {
     try {
       const { id } = req.params;
-      const { approved, rejectionReason, moderationNotes } = req.body;
+      const { action, reason, approved, rejectionReason, moderationNotes } = req.body;
 
       const project = await Project.findById(id).populate('promoteur');
       if (!project) {
         return res.status(404).json({ message: 'Project not found' });
       }
 
-      if (approved) {
+      // Support both formats: { action, reason } and { approved, rejectionReason }
+      const isApproved = approved !== undefined ? approved : (action === 'approve');
+      const rejection = rejectionReason || reason;
+
+      if (isApproved) {
         project.publicationStatus = 'published';
         project.rejectionReason = undefined;
       } else {
         project.publicationStatus = 'rejected';
-        project.rejectionReason = rejectionReason;
+        project.rejectionReason = rejection;
       }
 
       if (moderationNotes) {
@@ -426,9 +480,9 @@ export class AdminController {
 
       await AuditLogService.logFromRequest(
         req,
-        approved ? 'approve_project' : 'reject_project',
+        isApproved ? 'approve_project' : 'reject_project',
         'moderation',
-        `${approved ? 'Approved' : 'Rejected'} project: ${project.title}`,
+        `${isApproved ? 'Approved' : 'Rejected'} project: ${project.title}`,
         'Project',
         id
       );

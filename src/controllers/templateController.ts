@@ -42,7 +42,7 @@ export class TemplateController {
 
       res.json({
         success: true,
-        data: templates,
+        templates,
       });
     } catch (error: any) {
       res.status(400).json({

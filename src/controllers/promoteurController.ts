@@ -13,13 +13,78 @@ import { InvitationService } from '../services/InvitationService';
 
 export class PromoteurController {
   /**
+   * Supprime un document KYC du promoteur
+   */
+  static async deleteKYCDocument(req: AuthRequest, res: Response) {
+    try {
+      const user = await User.findById(req.user!.id);
+      if (!user?.promoteurProfile) {
+        return res.status(404).json({ message: 'Promoteur profile not found' });
+      }
+      const promoteur = await Promoteur.findById(user.promoteurProfile);
+      if (!promoteur) {
+        return res.status(404).json({ message: 'Promoteur not found' });
+      }
+      const docId = req.params.id;
+      const beforeCount = promoteur.kycDocuments.length;
+      promoteur.kycDocuments = promoteur.kycDocuments.filter((doc: any) => (doc._id?.toString() || doc.id?.toString()) !== docId);
+      if (promoteur.kycDocuments.length === beforeCount) {
+        return res.status(404).json({ message: 'Document KYC non trouvé' });
+      }
+      await promoteur.save();
+      await AuditLogService.logFromRequest(
+        req,
+        'delete_kyc_document',
+        'promoteur',
+        `Suppression d'un document KYC`,
+        'Promoteur',
+        promoteur._id.toString()
+      );
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Erreur suppression document KYC:', error);
+      res.status(500).json({ message: 'Erreur serveur' });
+    }
+  }
+
+  /**
+   * Upload file to Cloudinary (KYC, avatar, etc.)
+   */
+  static async uploadFile(req: AuthRequest, res: Response) {
+    try {
+      // Utilise multer pour parser le fichier
+      const file = req.file;
+      if (!file) {
+        return res.status(400).json({ message: 'Aucun fichier fourni' });
+      }
+      // Cloudinary
+      const cloudinary = require('cloudinary').v2;
+      cloudinary.config({
+        cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+        api_key: process.env.CLOUDINARY_API_KEY,
+        api_secret: process.env.CLOUDINARY_API_SECRET,
+      });
+      // Upload
+      const result = await cloudinary.uploader.upload(file.path, {
+        folder: 'promoteur',
+      });
+      res.json({ url: result.secure_url });
+    } catch (error) {
+      console.error('Error uploading file to Cloudinary:', error);
+      res.status(500).json({ message: 'Erreur upload Cloudinary' });
+    }
+  }
+
+  /**
    * Get promoteur profile
    */
   static async getProfile(req: AuthRequest, res: Response) {
     try {
       const user = await User.findById(req.user!.id).populate('promoteurProfile');
-      
+      console.log('[PromoteurController.getProfile] user:', user);
+      console.log('[PromoteurController.getProfile] promoteurProfile:', user?.promoteurProfile);
       if (!user?.promoteurProfile) {
+        console.log('[PromoteurController.getProfile] promoteurProfile is null, userId:', req.user!.id);
         return res.status(404).json({ message: 'Promoteur profile not found' });
       }
 
@@ -580,20 +645,6 @@ export class PromoteurController {
         return res.status(400).json({ message: 'Invalid upgrade plan' });
       }
 
-      // Check requirements for verified plan
-      // Note: KYC requirement removed for existing promoters who can upgrade
-      // if (newPlan === 'standard' && promoteur.kycStatus !== 'verified') {
-      //   return res.status(400).json({
-      //     message: 'KYC verification required for Standard plan'
-      //   });
-      // }
-
-      // Cancel any existing plan change request
-      if (promoteur.planChangeRequest) {
-        promoteur.planChangeRequest = undefined;
-        await promoteur.save();
-      }
-
       // Instead of auto-approving, create a payment session for the upgrade
       // Import required modules
       const { stripe, SUBSCRIPTION_PRICES } = await import('../config/stripe');
@@ -945,6 +996,27 @@ export class PromoteurController {
       }
     } catch (error: any) {
       console.log('[inviteTeamMember] Unexpected error:', error);
+      res.status(400).json({ message: error.message });
+    }
+  }
+
+  /**
+   * Resend a team invitation
+   */
+  static async resendInvitation(req: AuthRequest, res: Response) {
+    try {
+      const user = await User.findById(req.user!.id);
+      if (!user?.promoteurProfile) {
+        return res.status(404).json({ message: 'Promoteur profile not found' });
+      }
+      const invitationId = req.params.id;
+      const invitation = await InvitationService.resendInvitation(
+        invitationId, 
+        user.promoteurProfile.toString(), 
+        req.user!.id
+      );
+      res.json({ invitation });
+    } catch (error: any) {
       res.status(400).json({ message: error.message });
     }
   }

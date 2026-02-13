@@ -50,7 +50,7 @@ export class OpenGraphService {
       siteName: this.SITE_NAME,
       locale: 'fr_FR',
       price: p.prix ? this.formatPrice(p.prix) : undefined,
-      currency: 'XOF',
+      currency: 'EUR',
       city: p.city,
     };
   }

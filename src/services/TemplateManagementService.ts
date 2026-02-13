@@ -194,19 +194,7 @@ export class TemplateManagementService {
         name: 'Objection - Distance Géographique',
         type: 'whatsapp',
         category: 'objection-diaspora',
-        content: `Bonjour ${'{clientName}'},
-
-Je comprends votre préoccupation concernant la distance. C'est justement pour cela que nous mettons l'accent sur la transparence totale.
-
-Vous bénéficierez de:
-✅ Mises à jour régulières avec photos du chantier
-✅ Accès aux documents officiels
-✅ Possibilité de visite virtuelle
-✅ Représentant local pour visites physiques
-
-Notre score de transparence: ${'{trustScore}'}/100
-
-Souhaitez-vous planifier une visio pour discuter du projet ${'{projectName}'}?`,
+      content: 'Bonjour ${clientName},\n\nJe comprends votre préoccupation concernant la distance. C\'est justement pour cela que nous mettons l\'accent sur la transparence totale.\n\nVous bénéficierez de:\n✅ Mises à jour régulières avec photos du chantier\n✅ Accès aux documents officiels\n✅ Possibilité de visite virtuelle\n✅ Représentant local pour visites physiques\n\nNotre score de transparence: ${trustScore}/100\n\nSouhaitez-vous planifier une visio pour discuter du projet ${projectName}?',
         variables: ['clientName', 'trustScore', 'projectName'],
         targetAudience: 'promoteur',
         language: 'fr',
@@ -218,19 +206,7 @@ Souhaitez-vous planifier une visio pour discuter du projet ${'{projectName}'}?`,
         name: 'Objection - Confiance',
         type: 'whatsapp',
         category: 'objection-diaspora',
-        content: `Bonjour ${'{clientName}'},
-
-Votre prudence est tout à fait légitime. C'est pourquoi nous sommes sur cette plateforme qui vérifie:
-
-✓ Documents légaux (permis, titre foncier)
-✓ Capacité financière du promoteur
-✓ Avancement réel des travaux
-✓ Historique et réputation
-
-Notre niveau de vérification: ${'{verificationLevel}'}
-Badges obtenus: ${'{badges}'}
-
-Tous nos documents sont disponibles en ligne. Voulez-vous que je vous envoie le lien sécurisé?`,
+        content: 'Bonjour ${clientName},\n\nVotre prudence est tout à fait légitime. C\'est pourquoi nous sommes sur cette plateforme qui vérifie:\n\n✓ Documents légaux (permis, titre foncier)\n✓ Capacité financière du promoteur\n✓ Avancement réel des travaux\n✓ Historique et réputation\n\nNotre niveau de vérification: ${verificationLevel}\nBadges obtenus: ${badges}\n\nTous nos documents sont disponibles en ligne. Voulez-vous que je vous envoie le lien sécurisé?',
         variables: ['clientName', 'verificationLevel', 'badges'],
         targetAudience: 'promoteur',
         language: 'fr',
@@ -242,20 +218,7 @@ Tous nos documents sont disponibles en ligne. Voulez-vous que je vous envoie le 
         name: 'Objection - Prix',
         type: 'whatsapp',
         category: 'objection-diaspora',
-        content: `Bonjour ${'{clientName}'},
-
-Le prix de ${'{projectPrice}'} XOF pour ${'{projectType}'} peut sembler élevé, mais voici ce qui est inclus:
-
-📋 ${'{includedItems}'}
-
-De plus:
-• Garanties légales complètes
-• Accompagnement jusqu'à la livraison
-• Possibilité de paiement échelonné
-
-Livraison prévue: ${'{deliveryDate}'}
-
-Je peux vous proposer un plan de paiement adapté à votre situation. Intéressé(e)?`,
+        content: 'Bonjour ${clientName},\n\nLe prix de ${projectPrice} XOF pour ${projectType} peut sembler élevé, mais voici ce qui est inclus:\n\n📋 ${includedItems}\n\nDe plus:\n• Garanties légales complètes\n• Accompagnement jusqu\'à la livraison\n• Possibilité de paiement échelonné\n\nLivraison prévue: ${deliveryDate}\n\nJe peux vous proposer un plan de paiement adapté à votre situation. Intéressé(e)?',
         variables: ['clientName', 'projectPrice', 'projectType', 'includedItems', 'deliveryDate'],
         targetAudience: 'promoteur',
         language: 'fr',
@@ -268,21 +231,7 @@ Je peux vous proposer un plan de paiement adapté à votre situation. Intéress�
         name: 'Welcome - New Lead',
         type: 'whatsapp',
         category: 'welcome',
-        content: `Bonjour ${'{clientName}'} 👋
-
-Merci pour votre intérêt pour ${'{projectName}'}!
-
-Je suis ${'{agentName}'}, votre interlocuteur dédié.
-
-Voici votre brochure: ${'{brochureLink}'}
-
-Points clés:
-📍 ${'{location}'}
-💰 À partir de ${'{priceFrom}'} XOF
-📅 Livraison: ${'{deliveryDate}'}
-⭐ Score transparence: ${'{trustScore}'}/100
-
-Quand seriez-vous disponible pour échanger? (Visio/Téléphone)`,
+        content: 'Bonjour ${clientName} 👋\n\nMerci pour votre intérêt pour ${projectName}!\n\nJe suis ${agentName}, votre interlocuteur dédié.\n\nVoici votre brochure: ${brochureLink}\n\nPoints clés:\n📍 ${location}\n💰 À partir de ${priceFrom} XOF\n📅 Livraison: ${deliveryDate}\n⭐ Score transparence: ${trustScore}/100\n\nQuand seriez-vous disponible pour échanger? (Visio/Téléphone)',
         variables: ['clientName', 'projectName', 'agentName', 'brochureLink', 'location', 'priceFrom', 'deliveryDate', 'trustScore'],
         targetAudience: 'promoteur',
         language: 'fr',
@@ -295,15 +244,7 @@ Quand seriez-vous disponible pour échanger? (Visio/Téléphone)`,
         name: 'Follow-up - No Response 48h',
         type: 'whatsapp',
         category: 'follow-up',
-        content: `Bonjour ${'{clientName}'},
-
-Je me permets de revenir vers vous concernant ${'{projectName}'}.
-
-Avez-vous eu l'occasion de consulter la brochure?
-
-Y a-t-il des questions auxquelles je peux répondre?
-
-Je reste à votre disposition 📞`,
+        content: 'Bonjour ${clientName},\n\nJe me permets de revenir vers vous concernant ${projectName}.\n\nAvez-vous eu l\'occasion de consulter la brochure?\n\nY a-t-il des questions auxquelles je peux répondre?\n\nJe reste à votre disposition 📞',
         variables: ['clientName', 'projectName'],
         targetAudience: 'promoteur',
         language: 'fr',
@@ -349,6 +290,7 @@ ${'{agentEmail}'}`,
       },
     ];
 
+    const ADMIN_ID = '698a0eb0e594d036a380b56c';
     for (const templateData of defaultTemplates) {
       const existing = await Template.findOne({ 
         name: templateData.name,
@@ -358,11 +300,9 @@ ${'{agentEmail}'}`,
       if (!existing) {
         await Template.create({
           ...templateData,
+          createdBy: ADMIN_ID,
           slug: templateData.name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, ''),
-          isActive: true,
           isPublic: true,
-          usageCount: 0,
-          createdBy: new mongoose.Types.ObjectId('000000000000000000000000'),
         });
       }
     }

@@ -87,6 +87,53 @@ export class ProjectController {
   }
 
   /**
+   * Check if user can access (read/write) a project
+   * Owner can always access, team members can access if they belong to the promoteur
+   */
+  private static async canAccessProject(userId: string, projectId: string): Promise<boolean> {
+    const user = await User.findById(userId);
+    if (!user?.promoteurProfile) return false;
+
+    const project = await Project.findById(projectId);
+    if (!project) return false;
+
+    // Owner can always access
+    if (project.promoteur.toString() === user.promoteurProfile.toString()) {
+      return true;
+    }
+
+    return false;
+  }
+
+  /**
+   * Check if user can modify a project
+   * Owner can always modify, team members with admin role can modify
+   */
+  private static async canModifyProject(userId: string, projectId: string): Promise<boolean> {
+    const user = await User.findById(userId);
+    if (!user?.promoteurProfile) return false;
+
+    const project = await Project.findById(projectId);
+    if (!project) return false;
+
+    // Check if project belongs to the user's promoteur organization
+    if (project.promoteur.toString() !== user.promoteurProfile.toString()) {
+      return false;
+    }
+
+    // Get the promoteur to check if user is a team member
+    const promoteur = await Promoteur.findById(project.promoteur);
+    if (!promoteur) return false;
+
+    // Owner can always modify
+    if (promoteur.user.toString() === userId) return true;
+
+    // Team members with admin role can modify
+    const teamMember = promoteur.teamMembers.find(m => m.userId.toString() === userId);
+    return teamMember?.role === 'admin';
+  }
+
+  /**
    * Create a new project
    */
   static async createProject(req: AuthRequest, res: Response) {
@@ -159,7 +206,7 @@ export class ProjectController {
         coordinates,
         typologies,
         priceFrom,
-        currency: currency || 'XOF',
+        currency: currency || 'EUR',
         timeline,
         status: 'pre-commercialisation',
         publicationStatus: 'draft',
@@ -235,8 +282,9 @@ export class ProjectController {
         return res.status(404).json({ message: 'Project not found' });
       }
 
-      if (project.promoteur.toString() !== user?.promoteurProfile?.toString()) {
-        return res.status(403).json({ message: 'Not authorized' });
+      const canModify = await ProjectController.canModifyProject(req.user!.id, id);
+      if (!canModify) {
+        return res.status(403).json({ message: 'Not authorized to modify this project' });
       }
 
       const mediaKey = ProjectController.resolveMediaKey(mediaType);
@@ -451,8 +499,9 @@ export class ProjectController {
         return res.status(404).json({ message: 'Project not found' });
       }
 
-      if (project.promoteur.toString() !== user?.promoteurProfile?.toString()) {
-        return res.status(403).json({ message: 'Not authorized' });
+      const canModify = await ProjectController.canModifyProject(req.user!.id, id);
+      if (!canModify) {
+        return res.status(403).json({ message: 'Not authorized to modify this project' });
       }
 
       // If a file was uploaded via multipart/form-data, upload to Cloudinary
@@ -555,8 +604,9 @@ export class ProjectController {
         return res.status(404).json({ message: 'Project not found' });
       }
 
-      if (project.promoteur.toString() !== user?.promoteurProfile?.toString()) {
-        return res.status(403).json({ message: 'Not authorized' });
+      const canModify = await ProjectController.canModifyProject(req.user!.id, id);
+      if (!canModify) {
+        return res.status(403).json({ message: 'Not authorized to modify this project' });
       }
 
       const mediaKey = ProjectController.resolveMediaKey(mediaType);
@@ -673,6 +723,7 @@ export class ProjectController {
         status,
         verifiedOnly,
         search,
+        keyword, // Frontend sends keyword instead of search
         sort = '-createdAt',
         page = 1,
         limit = 20,
@@ -692,11 +743,13 @@ export class ProjectController {
       if (minScore) query.trustScore = { $gte: Number(minScore) };
       if (status) query.status = status;
       
-      if (search) {
+      // Support both 'search' and 'keyword' parameters
+      const searchTerm = search || keyword;
+      if (searchTerm) {
         query.$or = [
-          { title: { $regex: search, $options: 'i' } },
-          { description: { $regex: search, $options: 'i' } },
-          { area: { $regex: search, $options: 'i' } },
+          { title: { $regex: searchTerm, $options: 'i' } },
+          { description: { $regex: searchTerm, $options: 'i' } },
+          { area: { $regex: searchTerm, $options: 'i' } },
         ];
       }
 

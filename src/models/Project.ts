@@ -192,7 +192,7 @@ const ProjectSchema: Schema = new Schema({
   }],
   
   priceFrom: { type: Number, required: true, index: true },
-  currency: { type: String, default: 'XOF' },
+  currency: { type: String, default: 'EUR' },
   
   timeline: {
     preCommercializationDate: { type: Date },

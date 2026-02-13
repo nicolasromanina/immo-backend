@@ -70,7 +70,7 @@ const adSchema = new Schema<IAd>({
     totalBudget: { type: Number, required: true },
     dailyBudget: Number,
     spent: { type: Number, default: 0 },
-    currency: { type: String, default: 'XOF' },
+    currency: { type: String, default: 'EUR' },
   },
   schedule: {
     startDate: { type: Date, required: true },

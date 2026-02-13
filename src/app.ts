@@ -64,6 +64,9 @@ import { handleStripeWebhook } from './controllers/paymentController';
 
 const app = express();
 
+// Serve uploads folder for local documents
+app.use('/uploads', express.static('uploads'));
+
 // Webhook Stripe doit être AVANT express.json() pour avoir le body brut
 // Monté directement pour éviter le double-path via le router
 app.post('/api/payments/webhook', express.raw({ type: 'application/json' }), handleStripeWebhook);

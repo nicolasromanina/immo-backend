@@ -129,7 +129,7 @@ export async function createTestProject(
     area: 'Cocody',
     address: 'Riviera Golf',
     priceFrom: 50000000,
-    currency: 'XOF',
+    currency: 'EUR',
     typologies: [{
       name: 'F3',
       surface: 120,

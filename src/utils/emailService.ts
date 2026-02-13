@@ -85,6 +85,19 @@ const TEMPLATES: Record<string, (data: Record<string, any>) => { subject: string
     subject: `[URGENT] Alerte de crise - ${data.title || ''}`,
     html: `<h2 style="color:red;">Alerte de crise</h2><p>Titre : ${data.title || ''}</p><p>Sévérité : ${data.severity || ''}</p><p>${data.description || ''}</p><p>Action immédiate requise.</p>`,
   }),
+  'team-invitation': (data) => ({
+    subject: `Invitation à rejoindre l'équipe ${data.promoteurName || ''}`,
+    html: `
+      <h2>Invitation à rejoindre l'équipe ${data.promoteurName || ''}</h2>
+      <p>Bonjour,</p>
+      <p>${data.inviterName || 'Un membre de votre organisation'} vous invite à rejoindre l'équipe <strong>${data.promoteurName || ''}</strong> en tant que <strong>${data.role || ''}</strong>.</p>
+      <p>Pour accepter l'invitation, cliquez sur le bouton ci-dessous :</p>
+      <p><a href="${data.acceptUrl}" style="display:inline-block;padding:12px 24px;background:#1a1a2e;color:#fff;text-decoration:none;border-radius:6px;font-weight:bold;">Accepter l'invitation</a></p>
+      <p>Ce lien expirera le <strong>${data.expiresAt ? new Date(data.expiresAt).toLocaleString('fr-FR') : ''}</strong>.</p>
+      <p>Si vous n'êtes pas à l'origine de cette demande, vous pouvez ignorer cet email.</p>
+      <p>— L'équipe de la plateforme</p>
+    `,
+  }),
 };
 
 let transporter: nodemailer.Transporter | null = null;

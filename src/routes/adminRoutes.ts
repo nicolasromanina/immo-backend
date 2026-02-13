@@ -1,9 +1,13 @@
+
 import { Router } from 'express';
 import { AdminController } from '../controllers/adminController';
 import { authenticateJWT, authorizeRoles } from '../middlewares/auth';
 import { Role } from '../config/roles';
 
+
 const router = Router();
+// KYC document validation (individual)
+router.post('/promoteurs/:promoteurId/kyc-docs/:docId/verify', AdminController.verifyKYCDocument);
 
 // All routes require authentication and admin role
 router.use(authenticateJWT);

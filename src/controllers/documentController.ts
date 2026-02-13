@@ -61,6 +61,10 @@ export class DocumentController {
       });
 
       await document.save();
+      // eslint-disable-next-line no-console
+      console.log(`[Backend] Document enregistré: ${document._id} pour le projet ${projectId}`);
+      // eslint-disable-next-line no-console
+      console.log('[Backend] Champs du document enregistré:', document.toObject());
 
       // Recalculate project trust score
       await TrustScoreService.calculateProjectTrustScore(projectId);
@@ -94,16 +98,23 @@ export class DocumentController {
         return res.status(404).json({ message: 'Project not found' });
       }
 
-      const query: any = { project: projectId };
+      const { Types } = require('mongoose');
+      const query: any = { project: new Types.ObjectId(projectId) };
+      // eslint-disable-next-line no-console
+      console.log('[Backend] Query utilisée pour la recherche de documents:', query);
 
-      // If not the owner, only show public documents
+      // If admin, show all documents. If promoteur and owner, show all. Otherwise, only public.
       const user = await User.findById(req.user?.id);
+      const { Role } = require('../config/roles');
+      const isAdmin = req.user?.roles && req.user.roles.includes(Role.ADMIN);
       const isOwner = user?.promoteurProfile?.toString() === project.promoteur.toString();
 
-      if (!isOwner) {
-        query.visibility = 'public';
-      } else {
-        if (visibility) query.visibility = visibility;
+      if (!isAdmin) {
+        if (!isOwner) {
+          query.visibility = 'public';
+        } else {
+          if (visibility) query.visibility = visibility;
+        }
       }
 
       if (category) query.category = category;
@@ -113,6 +124,13 @@ export class DocumentController {
         .sort({ createdAt: -1 })
         .populate('uploadedBy', 'firstName lastName');
 
+      if (documents.length > 0) {
+        // eslint-disable-next-line no-console
+        console.log(`[Backend] Documents found for project ${projectId}:`, documents.map(d => d._id.toString()));
+      } else {
+        // eslint-disable-next-line no-console
+        console.log(`[Backend] No documents found for project ${projectId}`);
+      }
       res.json({ documents, isOwner });
     } catch (error) {
       console.error('Error getting documents:', error);

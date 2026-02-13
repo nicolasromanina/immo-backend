@@ -11,6 +11,10 @@ export class UpdateController {
    * Create project update
    */
   static async createUpdate(req: AuthRequest, res: Response) {
+      console.log('[UpdateController.createUpdate] POST /api/updates received');
+      console.log('Headers:', req.headers);
+      console.log('User:', req.user);
+      console.log('Body:', req.body);
     try {
       const {
         projectId,
@@ -58,9 +62,11 @@ export class UpdateController {
         }
       }
 
+      // Force promoteur à user.promoteurProfile (ObjectId)
+      const promoteurId = user.promoteurProfile;
       const update = new Update({
         project: projectId,
-        promoteur: user.promoteurProfile,
+        promoteur: promoteurId,
         title,
         description,
         photos,
@@ -73,8 +79,10 @@ export class UpdateController {
         scheduledFor: scheduledFor ? new Date(scheduledFor) : undefined,
         views: 0,
       });
+      console.log('[UpdateController.createUpdate] promoteur:', user.promoteurProfile?.toString(), '| status:', update.status, '| scheduledFor:', update.scheduledFor);
 
       await update.save();
+      console.log('[UpdateController.createUpdate] update saved:', update._id, '| status:', update.status, '| scheduledFor:', update.scheduledFor);
 
       await AuditLogService.logFromRequest(
         req,
@@ -336,9 +344,12 @@ export class UpdateController {
   static async getUpdatesCalendar(req: AuthRequest, res: Response) {
     try {
       const user = await User.findById(req.user!.id);
+      console.log('[UpdateController.getUpdatesCalendar] user:', user);
       if (!user?.promoteurProfile) {
+        console.log('[UpdateController.getUpdatesCalendar] Pas de promoteurProfile sur user:', user?._id);
         return res.status(403).json({ message: 'Only promoteurs can access this' });
       }
+      console.log('[UpdateController.getUpdatesCalendar] promoteurProfile user:', user.promoteurProfile, typeof user.promoteurProfile);
 
       const { from, to } = req.query;
       const query: any = {
@@ -352,12 +363,22 @@ export class UpdateController {
         if (to) query.scheduledFor.$lte = new Date(to as string);
       }
 
-      const updates = await Update.find(query)
+      const updates = await Update.find({ status: 'scheduled' })
         .sort({ scheduledFor: 1 })
         .populate('project', 'title slug');
 
-      const calendar: Record<string, any[]> = {};
+      // Log promoteur de la requête et promoteur de chaque update trouvée
+      console.log('[UpdateController.getUpdatesCalendar] promoteur requête:', user.promoteurProfile ?? 'undefined', typeof user.promoteurProfile);
       updates.forEach(update => {
+        console.log('[UpdateController.getUpdatesCalendar] update:', update._id.toString(), '| promoteur:', update.promoteur, typeof update.promoteur, '| status:', update.status, '| scheduledFor:', update.scheduledFor);
+      });
+
+      // On filtre ensuite comme avant
+      const filtered = updates.filter(update => update.promoteur && user.promoteurProfile && update.promoteur.toString() === user.promoteurProfile.toString());
+      console.log('[UpdateController.getUpdatesCalendar] updates matching promoteur:', filtered.length);
+
+      const calendar: Record<string, any[]> = {};
+      filtered.forEach(update => {
         const dateKey = update.scheduledFor
           ? new Date(update.scheduledFor).toISOString().slice(0, 10)
           : 'unscheduled';

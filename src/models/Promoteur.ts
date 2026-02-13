@@ -19,6 +19,7 @@ export interface IPromoteur extends Document {
     url: string;
     status: 'pending' | 'verified' | 'rejected';
     uploadedAt: Date;
+    rejectionReason?: string;
   }>;
   agrementNumber?: string;
   hasAgrement: boolean;
@@ -142,6 +143,7 @@ const PromoteurSchema: Schema = new Schema({
     url: { type: String, required: true },
     status: { type: String, enum: ['pending', 'verified', 'rejected'], default: 'pending' },
     uploadedAt: { type: Date, default: Date.now },
+    rejectionReason: { type: String, default: '' },
   }],
   agrementNumber: { type: String },
   hasAgrement: { type: Boolean, default: false },

@@ -77,7 +77,7 @@ const InvoiceSchema: Schema = new Schema({
   tax: { type: Number, default: 0 },
   taxRate: { type: Number, default: 0 },
   total: { type: Number, required: true },
-  currency: { type: String, default: 'XOF' },
+  currency: { type: String, default: 'EUR' },
   
   lineItems: [{
     description: { type: String, required: true },

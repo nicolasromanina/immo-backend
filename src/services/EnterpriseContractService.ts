@@ -63,7 +63,7 @@ export class EnterpriseContractService {
       pricing: {
         type: data.pricing.type,
         baseAmount: data.pricing.baseAmount,
-        currency: data.pricing.currency || 'XOF',
+        currency: data.pricing.currency || 'EUR',
         billingCycle: data.pricing.billingCycle || 'annual',
         volumeDiscounts: data.pricing.volumeDiscounts,
       },

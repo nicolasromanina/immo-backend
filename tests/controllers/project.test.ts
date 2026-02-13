@@ -116,7 +116,7 @@ describe('Project Controller', () => {
             { name: 'F3', surface: 120, price: 75000000, available: 5 },
           ],
           priceFrom: 75000000,
-          currency: 'XOF',
+          currency: 'EUR',
           timeline: { deliveryDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000) },
         });
 

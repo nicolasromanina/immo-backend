@@ -57,7 +57,7 @@ const ManagedServiceSchema: Schema = new Schema({
   },
   assignedManager: { type: Schema.Types.ObjectId, ref: 'User' },
   monthlyFee: { type: Number, required: true },
-  currency: { type: String, default: 'XOF' },
+  currency: { type: String, default: 'EUR' },
   startDate: { type: Date, required: true },
   endDate: { type: Date },
   activityLog: [{
