@@ -31,7 +31,12 @@ router.post('/:id/media/cover',
   validateUpload({ allowedCategories: ['image'], maxFileSize: 20 * 1024 * 1024, requireFile: true, fieldName: 'file' }),
   ProjectController.setProjectCoverImage
 );
-router.post('/:id/media/:mediaType', authenticateJWT, authorizeRoles(Role.PROMOTEUR, Role.ADMIN), ProjectController.addProjectMedia);
+router.post('/:id/media/:mediaType', 
+  authenticateJWT, 
+  authorizeRoles(Role.PROMOTEUR, Role.ADMIN), 
+  upload.single('file'),
+  ProjectController.addProjectMedia
+);
 router.delete('/:id/media/:mediaType', authenticateJWT, authorizeRoles(Role.PROMOTEUR, Role.ADMIN), ProjectController.removeProjectMedia);
 
 // Team assignment

@@ -1,12 +1,12 @@
 import { Router } from 'express';
 import { DocumentController } from '../controllers/documentController';
-import { authenticateJWT, authorizeRoles } from '../middlewares/auth';
+import { authenticateJWT, authenticateJWTOptional, authorizeRoles } from '../middlewares/auth';
 import { Role } from '../config/roles';
 
 const router = Router();
 
 // Get documents (public or restricted based on visibility)
-router.get('/project/:projectId', DocumentController.getProjectDocuments);
+router.get('/project/:projectId', authenticateJWTOptional, DocumentController.getProjectDocuments);
 router.get('/project/:projectId/stats', DocumentController.getDocumentStats);
 router.get('/:id', DocumentController.getDocument);
 
@@ -20,6 +20,10 @@ router.put('/:id', authenticateJWT, authorizeRoles(Role.PROMOTEUR, Role.ADMIN), 
 router.post('/:id/replace', authenticateJWT, authorizeRoles(Role.PROMOTEUR, Role.ADMIN), DocumentController.replaceDocument);
 router.post('/:id/share', authenticateJWT, authorizeRoles(Role.PROMOTEUR, Role.ADMIN), DocumentController.shareDocument);
 router.delete('/:id', authenticateJWT, authorizeRoles(Role.PROMOTEUR, Role.ADMIN), DocumentController.deleteDocument);
+
+// Admin routes - document approval
+router.post('/:id/approve', authenticateJWT, authorizeRoles(Role.ADMIN), DocumentController.approveDocument);
+router.post('/:id/reject', authenticateJWT, authorizeRoles(Role.ADMIN), DocumentController.rejectDocument);
 
 // Data-room / share link routes (promoteur only)
 router.post('/:id/share-link', authenticateJWT, authorizeRoles(Role.PROMOTEUR, Role.ADMIN), DocumentController.createShareLink);

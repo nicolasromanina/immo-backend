@@ -4,6 +4,7 @@ import Project from '../models/Project';
 import Promoteur from '../models/Promoteur';
 import User from '../models/User';
 import Favorite from '../models/Favorite';
+import Document from '../models/Document';
 import { AuditLogService } from '../services/AuditLogService';
 import { TrustScoreService } from '../services/TrustScoreService';
 import { BadgeService } from '../services/BadgeService';
@@ -50,7 +51,7 @@ export class ProjectController {
   };
 
   private static resolveMediaKey(mediaType: string) {
-    if (mediaType === 'floor-plans') return 'floorPlans';
+    if (mediaType === 'floor-plans' || mediaType === 'floorPlans') return 'floorPlans';
     if (mediaType === 'renderings') return 'renderings';
     if (mediaType === 'photos') return 'photos';
     if (mediaType === 'videos') return 'videos';
@@ -293,27 +294,70 @@ export class ProjectController {
       }
 
       const config = ProjectController.mediaConfig[mediaKey];
-      type MediaItem = { url?: string; mimeType?: string; sizeBytes?: number };
-      const items = Array.isArray(req.body.items)
-        ? req.body.items
-        : req.body.url
-          ? [{ url: req.body.url, mimeType: req.body.mimeType, sizeBytes: req.body.sizeBytes }]
-          : [];
+      
+      // Handle file upload via multer
+      const uploadedFile = (req as any).file as { buffer?: Buffer; mimetype?: string; size?: number; originalname?: string } | undefined;
+      let items: Array<{ url: string; mimeType?: string; sizeBytes?: number }> = [];
+
+      if (uploadedFile && uploadedFile.buffer) {
+        // Validate file
+        const mime = uploadedFile.mimetype || 'application/octet-stream';
+        const size = uploadedFile.size || 0;
+
+        const mimeError = config.mimeTypes.includes(mime) ? null : 'Unsupported media format';
+        if (mimeError) {
+          return res.status(400).json({ message: mimeError });
+        }
+        if (size > config.maxSize) {
+          return res.status(400).json({ message: 'File too large' });
+        }
+
+        // Upload to Cloudinary
+        try {
+          const { CloudinaryService } = await import('../services/CloudinaryService');
+          const folder = `projects/${project._id}/${mediaKey}`;
+          const publicId = `${mediaKey}_${Date.now()}`;
+          const resourceType = mediaKey === 'videos' ? 'auto' : 'image';
+          
+          const result = await CloudinaryService.uploadBuffer(uploadedFile.buffer!, { folder, publicId, resourceType });
+          const finalUrl = result.secure_url || result.url;
+
+          items = [{
+            url: finalUrl,
+            mimeType: mime,
+            sizeBytes: size
+          }];
+        } catch (err: any) {
+          console.error('Cloudinary upload failed:', err?.message || err);
+          return res.status(500).json({ message: 'Media upload failed', error: err?.message });
+        }
+      } else if (req.body.items && Array.isArray(req.body.items)) {
+        // Fallback: handle items from body
+        items = req.body.items;
+      } else if (req.body.url) {
+        // Fallback: handle single URL from body
+        items = [{ url: req.body.url, mimeType: req.body.mimeType, sizeBytes: req.body.sizeBytes }];
+      } else {
+        return res.status(400).json({ message: 'No file or media URL provided' });
+      }
 
       if (items.length === 0) {
         return res.status(400).json({ message: 'No media items provided' });
       }
 
+      // Validate each item
+      type MediaItem = { url?: string; mimeType?: string; sizeBytes?: number };
       const invalid = (items as MediaItem[]).find(item => ProjectController.validateMediaItem(item, config));
       if (invalid) {
         const error = ProjectController.validateMediaItem(invalid, config) as string;
         return res.status(400).json({ message: error });
       }
 
+      // Add to project media
       const normalizedExisting = ProjectController.normalizeMediaItems((project.media as any)[mediaKey] || []);
       const existingUrls = new Set(normalizedExisting.map(item => item.url));
       const normalizedNew = ProjectController.uniqueByUrl((items as MediaItem[]).map(item => ({
-        url: item.url,
+        url: item.url!,
         mimeType: item.mimeType,
         sizeBytes: item.sizeBytes,
         uploadedAt: new Date(),
@@ -332,7 +376,7 @@ export class ProjectController {
         req,
         'add_project_media',
         'project',
-        `Added ${filtered.length} ${mediaKey} item(s)` ,
+        `Added ${filtered.length} ${mediaKey} item(s)`,
         'Project',
         project._id.toString(),
         { mediaKey, count: filtered.length }
@@ -358,9 +402,9 @@ export class ProjectController {
 
       // Public projects can expose assigned team; otherwise require ownership
       if (project.publicationStatus !== 'published') {
-        const user = await User.findById(req.user?.id);
-        if (project.promoteur.toString() !== user?.promoteurProfile?.toString()) {
-          return res.status(403).json({ message: 'Not authorized' });
+        const canAccess = await ProjectController.canAccessProject(req.user?.id || '', project._id.toString());
+        if (!canAccess) {
+          return res.status(403).json({ message: 'Not authorized to view project details' });
         }
       }
 
@@ -665,9 +709,9 @@ export class ProjectController {
 
       const isPublished = project.publicationStatus === 'published';
       if (!isPublished) {
-        const user = await User.findById(req.user?.id);
-        if (project.promoteur.toString() !== user?.promoteurProfile?.toString()) {
-          return res.status(403).json({ message: 'Not authorized' });
+        const canAccess = await ProjectController.canAccessProject(req.user?.id || '', project._id.toString());
+        if (!canAccess) {
+          return res.status(403).json({ message: 'Not authorized to view project media' });
         }
       }
 
@@ -891,8 +935,18 @@ export class ProjectController {
       project.views += 1;
       await project.save();
 
-      // Populate related data
-      await project.populate('promoteur', 'organizationName trustScore badges plan logo');
+      // Populate related data - populate complete promoteur info
+      await project.populate('promoteur', '-password -refreshTokens');
+
+      // Fetch documents for this project separately
+      const documents = await Document.find({ project: project._id })
+        .populate('uploadedBy', 'firstName lastName email');
+      
+      // Attach documents to project response
+      const projectWithDocs = {
+        ...project.toObject(),
+        documents
+      };
 
       // Check if user has favorited this project
       let isFavorited = false;
@@ -904,7 +958,7 @@ export class ProjectController {
         isFavorited = !!favorite;
       }
 
-      res.json({ project, isFavorited });
+      res.json({ project: projectWithDocs, isFavorited });
     } catch (error) {
       console.error('Error getting project:', error);
       res.status(500).json({ message: 'Server error' });
@@ -924,23 +978,21 @@ export class ProjectController {
         return res.status(404).json({ message: 'Project not found' });
       }
 
-      // Check ownership
-      if (project.promoteur.toString() !== user?.promoteurProfile?.toString()) {
+      // Check authorization  
+      const canModify = await ProjectController.canModifyProject(req.user!.id, id);
+      if (!canModify) {
         return res.status(403).json({ message: 'Not authorized to update this project' });
       }
 
-      const allowedFields = [
-        'title',
-        'description',
-        'address',
-        'coordinates',
-        'typologies',
-        'priceFrom',
-        'timeline',
-        'features',
-        'amenities',
-        'status',
-        'typeDetails',
+      // Fields that should NOT be updated (protected fields)
+      const protectedFields = [
+        '_id',
+        'promoteur',
+        'publicationStatus',
+        'createdAt',
+        'updatedAt',
+        'changesLog',
+        '__v',
       ];
 
       const updates: any = {};
@@ -965,7 +1017,7 @@ export class ProjectController {
       }
 
       Object.keys(req.body).forEach(key => {
-        if (allowedFields.includes(key) && req.body[key] !== undefined) {
+        if (!protectedFields.includes(key) && req.body[key] !== undefined) {
           // Track changes for important fields
           if (['priceFrom', 'timeline', 'status'].includes(key)) {
             if (JSON.stringify(project[key as keyof typeof project]) !== JSON.stringify(req.body[key])) {
@@ -1109,8 +1161,9 @@ export class ProjectController {
         return res.status(404).json({ message: 'Project not found' });
       }
 
-      // Check ownership
-      if (project.promoteur.toString() !== user?.promoteurProfile?.toString()) {
+      // Check authorization
+      const canModify = await ProjectController.canModifyProject(req.user!.id, id);
+      if (!canModify) {
         return res.status(403).json({ message: 'Not authorized to delete this project' });
       }
 
@@ -1120,9 +1173,11 @@ export class ProjectController {
       await project.save();
 
       // Update promoteur stats
-      await Promoteur.findByIdAndUpdate(user.promoteurProfile, {
-        $inc: { activeProjects: -1 },
-      });
+      if (user?.promoteurProfile) {
+        await Promoteur.findByIdAndUpdate(user.promoteurProfile, {
+          $inc: { activeProjects: -1 },
+        });
+      }
 
       await AuditLogService.logFromRequest(
         req,
@@ -1153,9 +1208,10 @@ export class ProjectController {
         return res.status(404).json({ message: 'Project not found' });
       }
 
-      // Check ownership
-      if (project.promoteur.toString() !== user?.promoteurProfile?.toString()) {
-        return res.status(403).json({ message: 'Not authorized' });
+      // Check authorization
+      const canModify = await ProjectController.canModifyProject(req.user!.id, id);
+      if (!canModify) {
+        return res.status(403).json({ message: 'Not authorized to publish this project' });
       }
 
       // Check if project has minimum required info
@@ -1237,9 +1293,10 @@ export class ProjectController {
         return res.status(404).json({ message: 'Project not found' });
       }
 
-      // Check ownership
-      if (project.promoteur.toString() !== user?.promoteurProfile?.toString()) {
-        return res.status(403).json({ message: 'Not authorized' });
+      // Check authorization
+      const canModify = await ProjectController.canModifyProject(req.user!.id, id);
+      if (!canModify) {
+        return res.status(403).json({ message: 'Not authorized to modify this project' });
       }
 
       project.faq.push({
@@ -1271,9 +1328,10 @@ export class ProjectController {
         return res.status(404).json({ message: 'Project not found' });
       }
 
-      // Check ownership
-      if (project.promoteur.toString() !== user?.promoteurProfile?.toString()) {
-        return res.status(403).json({ message: 'Not authorized' });
+      // Check authorization
+      const canModify = await ProjectController.canModifyProject(req.user!.id, id);
+      if (!canModify) {
+        return res.status(403).json({ message: 'Not authorized to report delays' });
       }
 
       project.delays.push({
@@ -1321,9 +1379,10 @@ export class ProjectController {
         return res.status(404).json({ message: 'Project not found' });
       }
 
-      // Check ownership
-      if (project.promoteur.toString() !== user?.promoteurProfile?.toString()) {
-        return res.status(403).json({ message: 'Not authorized' });
+      // Check authorization
+      const canModify = await ProjectController.canModifyProject(req.user!.id, id);
+      if (!canModify) {
+        return res.status(403).json({ message: 'Not authorized to report risks' });
       }
 
       project.risks.push({
@@ -1367,9 +1426,10 @@ export class ProjectController {
         return res.status(404).json({ message: 'Project not found' });
       }
 
-      // Check ownership
-      if (project.promoteur.toString() !== user?.promoteurProfile?.toString()) {
-        return res.status(403).json({ message: 'Not authorized' });
+      // Check authorization
+      const canModify = await ProjectController.canModifyProject(req.user!.id, id);
+      if (!canModify) {
+        return res.status(403).json({ message: 'Not authorized to pause this project' });
       }
 
       // Cannot pause if already completed or archived
@@ -1430,9 +1490,10 @@ export class ProjectController {
         return res.status(404).json({ message: 'Project not found' });
       }
 
-      // Check ownership
-      if (project.promoteur.toString() !== user?.promoteurProfile?.toString()) {
-        return res.status(403).json({ message: 'Not authorized' });
+      // Check authorization
+      const canModify = await ProjectController.canModifyProject(req.user!.id, id);
+      if (!canModify) {
+        return res.status(403).json({ message: 'Not authorized to resume this project' });
       }
 
       if (project.status !== 'pause') {

@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import mongoose from 'mongoose';
 import { AuthRequest } from '../middlewares/auth';
 import Document from '../models/Document';
 import Project from '../models/Project';
@@ -42,7 +43,7 @@ export class DocumentController {
       }
 
       const document = new Document({
-        project: projectId,
+        project: new mongoose.Types.ObjectId(projectId),
         promoteur: user.promoteurProfile,
         name,
         type,
@@ -54,7 +55,7 @@ export class DocumentController {
         tags: tags || [],
         uploadedBy: user._id,
         uploadedAt: new Date(),
-        status: 'fourni',
+        status: 'en-attente',
         expiresAt: expiresAt ? new Date(expiresAt) : undefined,
         version: 1,
         verified: false,
@@ -65,6 +66,15 @@ export class DocumentController {
       console.log(`[Backend] Document enregistré: ${document._id} pour le projet ${projectId}`);
       // eslint-disable-next-line no-console
       console.log('[Backend] Champs du document enregistré:', document.toObject());
+      
+      // DEBUG: Verify document exists immediately
+      const verifyDoc = await Document.findById(document._id);
+      // eslint-disable-next-line no-console
+      console.log('[Backend] Vérification - Document trouvé par ID?', !!verifyDoc);
+      if (verifyDoc) {
+        // eslint-disable-next-line no-console
+        console.log('[Backend] Document trouvé - project:', verifyDoc.project.toString());
+      }
 
       // Recalculate project trust score
       await TrustScoreService.calculateProjectTrustScore(projectId);
@@ -102,6 +112,8 @@ export class DocumentController {
       const query: any = { project: new Types.ObjectId(projectId) };
       // eslint-disable-next-line no-console
       console.log('[Backend] Query utilisée pour la recherche de documents:', query);
+      // eslint-disable-next-line no-console
+      console.log('[Backend] Recherche dans la collection Document...');
 
       // If admin, show all documents. If promoteur and owner, show all. Otherwise, only public.
       const user = await User.findById(req.user?.id);
@@ -109,27 +121,58 @@ export class DocumentController {
       const isAdmin = req.user?.roles && req.user.roles.includes(Role.ADMIN);
       const isOwner = user?.promoteurProfile?.toString() === project.promoteur.toString();
 
+      // eslint-disable-next-line no-console
+      console.log('[Backend] Vérification d\'identité:');
+      // eslint-disable-next-line no-console
+      console.log('  - userId:', req.user?.id);
+      // eslint-disable-next-line no-console
+      console.log('  - user.promoteurProfile:', user?.promoteurProfile?.toString());
+      // eslint-disable-next-line no-console
+      console.log('  - project.promoteur:', project.promoteur?.toString());
+      // eslint-disable-next-line no-console
+      console.log('  - isAdmin:', isAdmin);
+      // eslint-disable-next-line no-console
+      console.log('  - isOwner:', isOwner);
+
       if (!isAdmin) {
         if (!isOwner) {
           query.visibility = 'public';
+          // eslint-disable-next-line no-console
+          console.log('[Backend] Utilisateur NON propriétaire - filtre visibility = public appliqué');
         } else {
           if (visibility) query.visibility = visibility;
+          // eslint-disable-next-line no-console
+          console.log('[Backend] Utilisateur est propriétaire - pas de filtre visibility');
         }
+      } else {
+        // eslint-disable-next-line no-console
+        console.log('[Backend] Admin - pas de filtre visibility');
       }
 
       if (category) query.category = category;
       if (status) query.status = status;
 
+      // eslint-disable-next-line no-console
+      console.log('[Backend] Query finale avant find:', JSON.stringify(query, null, 2));
+      
       const documents = await Document.find(query)
         .sort({ createdAt: -1 })
         .populate('uploadedBy', 'firstName lastName');
 
+      // eslint-disable-next-line no-console
+      console.log(`[Backend] Résultat: ${documents.length} documents trouvés`);
+      
       if (documents.length > 0) {
         // eslint-disable-next-line no-console
         console.log(`[Backend] Documents found for project ${projectId}:`, documents.map(d => d._id.toString()));
       } else {
         // eslint-disable-next-line no-console
         console.log(`[Backend] No documents found for project ${projectId}`);
+        
+        // DEBUG: Check if ANY documents exist in collection
+        const allDocs = await Document.countDocuments();
+        // eslint-disable-next-line no-console
+        console.log(`[Backend] Total documents in collection: ${allDocs}`);
       }
       res.json({ documents, isOwner });
     } catch (error) {
@@ -319,10 +362,8 @@ export class DocumentController {
         return res.status(403).json({ message: 'Not authorized' });
       }
 
-      // Mark as deleted instead of actual deletion
-      document.status = 'manquant';
-
-      await document.save();
+      // Actually delete the document
+      await Document.deleteOne({ _id: id });
 
       await AuditLogService.logFromRequest(
         req,
@@ -332,6 +373,9 @@ export class DocumentController {
         'Document',
         id
       );
+
+      // Recalculate project trust score
+      await TrustScoreService.calculateProjectTrustScore(document.project.toString());
 
       res.json({ message: 'Document deleted successfully' });
     } catch (error) {
@@ -482,4 +526,100 @@ export class DocumentController {
     } catch (error: any) {
       res.status(error.message.includes('Invalid') ? 404 : 400).json({ message: error.message });
     }
-  }}
+  }
+
+  /**
+   * Approve a document (admin only)
+   */
+  static async approveDocument(req: AuthRequest, res: Response) {
+    try {
+      const { id } = req.params;
+      const document = await Document.findById(id);
+
+      if (!document) {
+        return res.status(404).json({ message: 'Document not found' });
+      }
+
+      document.status = 'fourni';
+      document.verified = true;
+      document.verifiedBy = req.user!.id as any;
+      document.verifiedAt = new Date();
+
+      await document.save();
+
+      // Log the approval
+      await AuditLogService.log({
+        action: 'document_approved',
+        category: 'document',
+        actor: req.user!.id,
+        targetType: 'Document',
+        targetId: document._id.toString(),
+        description: `Document "${document.name}" approved`,
+        metadata: { documentName: document.name },
+      });
+
+      // Recalculate trust score if applicable
+      if (document.promoteur) {
+        await TrustScoreService.updateAllScores(document.promoteur.toString());
+      }
+
+      res.json({
+        success: true,
+        data: document,
+      });
+    } catch (error: any) {
+      res.status(400).json({
+        success: false,
+        message: error.message || 'Error approving document',
+      });
+    }
+  }
+
+  /**
+   * Reject a document (admin only)
+   */
+  static async rejectDocument(req: AuthRequest, res: Response) {
+    try {
+      const { id } = req.params;
+      const { reason } = req.body;
+
+      const document = await Document.findById(id);
+
+      if (!document) {
+        return res.status(404).json({ message: 'Document not found' });
+      }
+
+      document.status = 'fourni';
+      document.verified = false;
+      document.verifiedBy = req.user!.id as any;
+      document.verifiedAt = new Date();
+      
+      if (reason) {
+        document.verificationNotes = reason;
+      }
+
+      await document.save();
+
+      // Log the rejection
+      await AuditLogService.log({
+        action: 'document_rejected',
+        category: 'document',
+        actor: req.user!.id,
+        targetType: 'Document',
+        targetId: document._id.toString(),
+        description: `Document "${document.name}" rejected` + (reason ? `: ${reason}` : ''),
+        metadata: { documentName: document.name, reason },
+      });
+
+      res.json({
+        success: true,
+        data: document,
+      });
+    } catch (error: any) {
+      res.status(400).json({
+        success: false,
+        message: error.message || 'Error rejecting document',
+      });
+    }
+  }
+}

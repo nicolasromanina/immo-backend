@@ -33,7 +33,10 @@ export class TrustScoreService {
     }
     
     // 3. Financial Proof (15 points)
-    score += promoteurWeights.financial[promoteur.financialProofLevel] || 0;
+    // Only count approved financial documents towards the score
+    const approvedFinancialDocs = promoteur.financialProofDocuments?.filter((d: any) => d.status === 'approved') || [];
+    const grantedFinancialLevel = approvedFinancialDocs.length > 0 ? promoteur.financialProofLevel : 'none';
+    score += promoteurWeights.financial[grantedFinancialLevel] || 0;
     
     // 4. Active Projects & Updates (20 points)
     const projects = await Project.find({ 

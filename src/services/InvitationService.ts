@@ -113,15 +113,13 @@ export class InvitationService {
     // Add user to team et lier promoteurProfile
     let promoteur = await Promoteur.findById(invitation.promoteur);
     if (!promoteur) throw new Error('Promoteur not found');
+    
     if (!user.promoteurProfile) {
-      const updatedUser = await User.findOneAndUpdate(
-        { _id: userId },
-        { promoteurProfile: promoteur._id },
-        { new: true }
-      );
-      console.log('[InvitationService.acceptInvitation] userId:', userId, 'promoteurId:', promoteur._id);
-      console.log('[InvitationService.acceptInvitation] promoteurProfile after update:', updatedUser?.promoteurProfile);
+      user.promoteurProfile = promoteur._id;
     }
+
+    // Sauvegarder les changements de l'utilisateur (rôle et promoteurProfile)
+    await user.save();
 
     // Déterminer le plan à appliquer selon le rôle de l'invitant (owner)
     // Si l'invitant (owner) est admin, plan premium, sinon standard

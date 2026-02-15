@@ -111,14 +111,19 @@ function getTransporter(): nodemailer.Transporter | null {
   const pass = process.env.SMTP_PASS;
 
   if (!host || !user || !pass) {
+    console.warn('[Email] SMTP credentials not configured in environment variables');
     return null;
   }
+
+  console.log('[Email] Initializing SMTP transporter:', { host, port, user: user.substring(0, 5) + '***' });
 
   transporter = nodemailer.createTransport({
     host,
     port,
-    secure: port === 465,
+    secure: port === 465, // true for 465, false for 587
     auth: { user, pass },
+    connectionTimeout: 10000, // 10 seconds
+    socketTimeout: 10000, // 10 seconds
   });
 
   return transporter;

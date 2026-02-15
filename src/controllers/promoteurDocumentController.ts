@@ -14,8 +14,9 @@ export class PromoteurDocumentController {
       if (file.mimetype.startsWith('image/')) {
         return res.status(400).json({ message: 'Utilisez /upload pour les images.' });
       }
-      // Return local file URL
-      const url = `/uploads/${file.filename}`;
+      // Return full URL with backend port
+      const backendUrl = process.env.BACKEND_URL || `http://localhost:${process.env.PORT || 5000}`;
+      const url = `${backendUrl}/uploads/${file.filename}`;
       res.json({ url });
     } catch (error) {
       res.status(500).json({ message: 'Erreur upload document.' });

@@ -1,4 +1,5 @@
 import { Response } from 'express';
+import mongoose from 'mongoose';
 import { AuthRequest } from '../middlewares/auth';
 import Promoteur from '../models/Promoteur';
 import Project from '../models/Project';
@@ -1151,6 +1152,59 @@ export class AdminController {
       res.json({ promoteur });
     } catch (error) {
       console.error('Error applying plan change:', error);
+      res.status(500).json({ message: 'Server error' });
+    }
+  }
+
+  /**
+   * Admin: approve or reject a financial proof document for a promoteur
+   */
+  static async approveFinancialProofDocument(req: AuthRequest, res: Response) {
+    try {
+      const { promoteurId, docId } = req.params;
+      const { approved, rejectionReason } = req.body;
+
+      const promoteur = await Promoteur.findById(promoteurId).populate('user');
+      if (!promoteur) {
+        return res.status(404).json({ message: 'Promoteur not found' });
+      }
+
+      const doc = promoteur.financialProofDocuments.find((d: any) => (d._id?.toString() || d.id?.toString()) === docId);
+      if (!doc) {
+        return res.status(404).json({ message: 'Financial proof document not found' });
+      }
+
+      if (approved) {
+        doc.status = 'approved';
+        doc.reviewedBy = new mongoose.Types.ObjectId(req.user!.id);
+        doc.reviewedAt = new Date();
+      } else {
+        doc.status = 'rejected';
+        doc.rejectionReason = rejectionReason || '';
+        doc.reviewedBy = new mongoose.Types.ObjectId(req.user!.id);
+        doc.reviewedAt = new Date();
+      }
+
+      // If all docs are approved, keep the level, recalculate trust score
+      if (promoteur.financialProofDocuments.every((d: any) => d.status === 'approved' || d.status !== 'rejected')) {
+        // Only count approved documents for the level
+        await TrustScoreService.updateAllScores(promoteurId);
+      }
+
+      await promoteur.save();
+
+      await AuditLogService.logFromRequest(
+        req,
+        approved ? 'approve_financial_doc' : 'reject_financial_doc',
+        'moderation',
+        `${approved ? 'Approved' : 'Rejected'} financial proof document for ${promoteur.organizationName}`,
+        'Promoteur',
+        promoteurId
+      );
+
+      res.json({ promoteur });
+    } catch (error) {
+      console.error('Error approving financial proof document:', error);
       res.status(500).json({ message: 'Server error' });
     }
   }

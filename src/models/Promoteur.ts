@@ -50,6 +50,10 @@ export interface IPromoteur extends Document {
   financialProofDocuments: Array<{
     url: string;
     uploadedAt: Date;
+    status: 'pending' | 'approved' | 'rejected';
+    reviewedBy?: mongoose.Types.ObjectId;
+    reviewedAt?: Date;
+    rejectionReason?: string;
   }>;
   
   // Trust Score & Badges
@@ -180,6 +184,10 @@ const PromoteurSchema: Schema = new Schema({
   financialProofDocuments: [{
     url: { type: String, required: true },
     uploadedAt: { type: Date, default: Date.now },
+    status: { type: String, enum: ['pending', 'approved', 'rejected'], default: 'pending' },
+    reviewedBy: { type: Schema.Types.ObjectId, ref: 'User' },
+    reviewedAt: { type: Date },
+    rejectionReason: { type: String, default: '' },
   }],
   
   trustScore: { type: Number, default: 0, min: 0, max: 100 },

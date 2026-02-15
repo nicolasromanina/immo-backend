@@ -5,8 +5,8 @@ import { Role } from '../config/roles';
 
 const router = Router();
 
-// Create lead (can be called by anyone, even unauthenticated - but we'll require auth)
-router.post('/', authenticateJWT, LeadController.createLead);
+// Create lead (public endpoint - anyone can submit)
+router.post('/', LeadController.createLead);
 
 // Promoteur-only routes
 router.get('/', authenticateJWT, authorizeRoles(Role.PROMOTEUR, Role.ADMIN), LeadController.getLeads);

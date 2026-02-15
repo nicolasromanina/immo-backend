@@ -2,6 +2,7 @@ import express from 'express';
 import authRoutes from './routes/authRoutes';
 import userRoutes from './routes/userRoutes';
 import promoteurRoutes from './routes/promoteurRoutes';
+import publicPromoteurRoutes from './routes/publicPromoteurRoutes';
 import projectRoutes from './routes/projectRoutes';
 import leadRoutes from './routes/leadRoutes';
 import updateRoutes from './routes/updateRoutes';
@@ -94,6 +95,7 @@ app.use(limiter);
 // API Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
+app.use('/api/public/promoteurs', publicPromoteurRoutes);
 app.use('/api/promoteurs', promoteurRoutes);
 app.use('/api/projects', projectRoutes);
 app.use('/api/leads', leadRoutes);

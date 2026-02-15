@@ -48,30 +48,50 @@ export class PromoteurController {
   }
 
   /**
-   * Upload file to Cloudinary (KYC, avatar, etc.)
+   * Upload file to Cloudinary for media (images, videos) or local storage for documents
    */
   static async uploadFile(req: AuthRequest, res: Response) {
     try {
-      // Utilise multer pour parser le fichier
       const file = req.file;
       if (!file) {
         return res.status(400).json({ message: 'Aucun fichier fourni' });
       }
-      // Cloudinary
-      const cloudinary = require('cloudinary').v2;
-      cloudinary.config({
-        cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-        api_key: process.env.CLOUDINARY_API_KEY,
-        api_secret: process.env.CLOUDINARY_API_SECRET,
-      });
-      // Upload
-      const result = await cloudinary.uploader.upload(file.path, {
-        folder: 'promoteur',
-      });
-      res.json({ url: result.secure_url });
+
+      // Check if it's a media file (image, video)
+      const isMediaFile = file.mimetype.startsWith('image/') || file.mimetype.startsWith('video/');
+
+      if (isMediaFile) {
+        // Upload media to Cloudinary
+        const cloudinary = require('cloudinary').v2;
+        cloudinary.config({
+          cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+          api_key: process.env.CLOUDINARY_API_KEY,
+          api_secret: process.env.CLOUDINARY_API_SECRET,
+        });
+
+        const result = await cloudinary.uploader.upload(file.path, {
+          folder: 'promoteur',
+        });
+        
+        // Delete local temp file
+        const fs = require('fs').promises;
+        try {
+          await fs.unlink(file.path);
+        } catch (e) {
+          // Ignore error if file can't be deleted
+        }
+
+        res.json({ url: result.secure_url });
+      } else {
+        // Documents (PDF, DOC, etc) are stored locally in uploads/
+        // Return full URL with backend port to avoid browser resolving to frontend port
+        const backendUrl = process.env.BACKEND_URL || `http://localhost:${process.env.PORT || 5000}`;
+        const url = `${backendUrl}/uploads/${file.filename}`;
+        res.json({ url });
+      }
     } catch (error) {
-      console.error('Error uploading file to Cloudinary:', error);
-      res.status(500).json({ message: 'Erreur upload Cloudinary' });
+      console.error('Error uploading file:', error);
+      res.status(500).json({ message: 'Erreur upload fichier' });
     }
   }
 
@@ -299,6 +319,8 @@ export class PromoteurController {
         promoteur.financialProofDocuments.push({
           url: doc.url,
           uploadedAt: new Date(),
+          status: 'pending',
+          rejectionReason: '',
         });
       });
 

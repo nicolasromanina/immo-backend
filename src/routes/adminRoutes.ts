@@ -6,12 +6,16 @@ import { Role } from '../config/roles';
 
 
 const router = Router();
-// KYC document validation (individual)
-router.post('/promoteurs/:promoteurId/kyc-docs/:docId/verify', AdminController.verifyKYCDocument);
 
 // All routes require authentication and admin role
 router.use(authenticateJWT);
 router.use(authorizeRoles(Role.ADMIN, Role.SUPPORT));
+
+// KYC document validation (individual)
+router.post('/promoteurs/:promoteurId/kyc-docs/:docId/verify', AdminController.verifyKYCDocument);
+
+// Financial proof document validation (individual)
+router.post('/promoteurs/:promoteurId/financial-docs/:docId/approve', AdminController.approveFinancialProofDocument);
 
 // Dashboard
 router.get('/dashboard/stats', AdminController.getDashboardStats);
