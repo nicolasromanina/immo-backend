@@ -97,18 +97,15 @@ export const createCheckoutSession = async (req: Request, res: Response) => {
 
 /**
  * Créer une session de paiement pour booster un projet
+ * Support des deux modes: boostType prédéfini OU customAmount flexible
  */
 export const createBoostCheckoutSession = async (req: Request, res: Response) => {
   try {
     const userId = (req as any).user?.id;
-    const { projectId, boostType, duration } = req.body;
+    const { projectId, boostType, customAmount, duration } = req.body;
 
     if (!userId) {
       return res.status(401).json({ message: 'Non authentifié' });
-    }
-
-    if (!['basic', 'premium', 'enterprise'].includes(boostType)) {
-      return res.status(400).json({ message: 'Type de boost invalide' });
     }
 
     const user = await User.findById(userId);
@@ -116,6 +113,34 @@ export const createBoostCheckoutSession = async (req: Request, res: Response) =>
 
     if (!promoteur) {
       return res.status(404).json({ message: 'Promoteur non trouvé' });
+    }
+
+    // Déterminer le montant
+    let amount: number;
+    let description: string;
+
+    if (customAmount) {
+      // Montant custom (en centimes)
+      amount = customAmount;
+      
+      // Valider le montant (20-5000€)
+      const amountInEuros = amount / 100;
+      if (amountInEuros < 20 || amountInEuros > 5000) {
+        return res.status(400).json({ 
+          message: 'Montant invalide. Le montant doit être entre 20€ et 5000€' 
+        });
+      }
+      
+      description = `Boost projet personnalisé (${amountInEuros}€)`;
+    } else if (boostType) {
+      // Montant prédéfini par type
+      if (!['basic', 'premium', 'enterprise'].includes(boostType)) {
+        return res.status(400).json({ message: 'Type de boost invalide' });
+      }
+      amount = BOOST_PRICES[boostType as keyof typeof BOOST_PRICES];
+      description = `Boost ${boostType}`;
+    } else {
+      return res.status(400).json({ message: 'Montant ou type de boost requis' });
     }
 
     // Créer ou récupérer le customer Stripe
@@ -137,7 +162,7 @@ export const createBoostCheckoutSession = async (req: Request, res: Response) =>
       });
     }
 
-    const amount = BOOST_PRICES[boostType as keyof typeof BOOST_PRICES];
+    const promoteurUrl = process.env.PROMOTEUR_URL || 'http://localhost:8081';
 
     // Créer la session Checkout
     const session = await stripe.checkout.sessions.create({
@@ -149,22 +174,21 @@ export const createBoostCheckoutSession = async (req: Request, res: Response) =>
           price_data: {
             currency: 'eur',
             product_data: {
-              name: `Boost ${boostType}`,
-              description: `Booster votre projet pendant ${duration} jours`,
+              name: `Boost : ${description}`,
+              description: `Projet: ${projectId}`,
             },
             unit_amount: amount,
           },
           quantity: 1,
         },
       ],
-      success_url: `${process.env.FRONTEND_URL}/promoteur/boost/success?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${process.env.FRONTEND_URL}/promoteur/projects/${projectId}`,
+      success_url: `${promoteurUrl}/promoteur/boost/success?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${promoteurUrl}/boost-project`,
       metadata: {
         userId: userId.toString(),
         promoteurId: promoteur._id.toString(),
-        projectId: projectId || '',
-        boostType,
-        duration: duration?.toString() || '30',
+        projectId: projectId,
+        amount: amount.toString(),
         paymentType: 'boost',
       },
     });
@@ -197,9 +221,17 @@ export const handleStripeWebhook = async (req: Request, res: Response) => {
     return res.status(400).send(`Webhook Error: ${err.message}`);
   }
 
+  console.log('[STRIPE WEBHOOK] Received event type:', event.type);
+  console.log('[STRIPE WEBHOOK] Event ID:', event.id);
+  const eventData = event.data.object as any;
+  if (eventData.metadata) {
+    console.log('[STRIPE WEBHOOK] Metadata:', eventData.metadata);
+  }
+
   try {
     switch (event.type) {
       case 'checkout.session.completed':
+        console.log('[STRIPE WEBHOOK] Processing checkout.session.completed');
         await handleCheckoutSessionCompleted(event.data.object);
         break;
 
@@ -242,6 +274,15 @@ async function handleCheckoutSessionCompleted(session: any) {
   const promoteurId = session.metadata.promoteurId;
   const plan = session.metadata.plan;
   const paymentType = session.metadata.paymentType;
+
+  console.log('[handleCheckoutSessionCompleted] Session metadata:', {
+    promoteurId,
+    plan,
+    paymentType,
+    customerId: session.customer,
+    mode: session.mode,
+    allMetadata: session.metadata
+  });
 
   if (paymentType === 'become-promoteur') {
     // Handle become-promoteur payment
@@ -319,7 +360,7 @@ async function handleCheckoutSessionCompleted(session: any) {
   }
 
   if (paymentType === 'upgrade') {
-    console.log('[CHECKOUT COMPLETED] Processing upgrade payment');
+    console.log('[✅ UPGRADE PAYMENT DETECTED] Processing upgrade payment');
     // Handle upgrade payment
     const userId = session.metadata.userId;
     const promoteurId = session.metadata.promoteurId;
@@ -337,14 +378,21 @@ async function handleCheckoutSessionCompleted(session: any) {
 
     try {
       // Update promoteur plan
+      console.log('[UPGRADE WEBHOOK] Finding promoteur with ID:', promoteurId);
       const promoteur = await Promoteur.findById(promoteurId);
       if (!promoteur) {
-        console.error('[UPGRADE WEBHOOK] Promoteur not found for upgrade:', promoteurId);
+        console.error('[❌ UPGRADE WEBHOOK] Promoteur not found for upgrade:', promoteurId);
+        console.error('[❌ UPGRADE WEBHOOK] Available promoteyurs:', await Promoteur.find({}).select('_id organizationName plan'));
         return;
       }
 
-      console.log('[UPGRADE WEBHOOK] Found promoteur, current plan:', promoteur.plan);
+      console.log('[UPGRADE WEBHOOK] ✅ Found promoteur:', {
+        id: promoteur._id,
+        name: promoteur.organizationName,
+        currentPlan: promoteur.plan
+      });
 
+      console.log('[UPGRADE WEBHOOK] Updating plan from', promoteur.plan, 'to', upgradeTo);
       promoteur.plan = upgradeTo;
       promoteur.subscriptionStatus = 'active';
 
@@ -357,8 +405,15 @@ async function handleCheckoutSessionCompleted(session: any) {
       });
 
       await promoteur.save();
+      console.log('[✅ UPGRADE WEBHOOK] Promoteur saved successfully');
 
-      console.log('[UPGRADE WEBHOOK] Promoteur updated successfully to plan:', upgradeTo);
+      // Verify the update
+      const updated = await Promoteur.findById(promoteurId);
+      console.log('[VERIFY] Promoteur after save:', {
+        id: updated?._id,
+        plan: updated?.plan,
+        expectedPlan: upgradeTo
+      });
 
       // Create a payment record
       await Payment.create({
@@ -385,9 +440,10 @@ async function handleCheckoutSessionCompleted(session: any) {
         channels: { inApp: true, email: true },
       });
 
-      console.log(`Promoteur ${promoteurId} upgraded from ${upgradeFrom} to ${upgradeTo}`);
+      console.log(`[✅ UPGRADE SUCCESS] Promoteur ${promoteurId} upgraded from ${upgradeFrom} to ${upgradeTo}`);
     } catch (err: any) {
-      console.error('Error processing upgrade payment:', err);
+      console.error('[❌ UPGRADE WEBHOOK ERROR]', err);
+      console.error('[❌ UPGRADE WEBHOOK ERROR] Stack:', err.stack);
     }
     return;
   }

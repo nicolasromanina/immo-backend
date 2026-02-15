@@ -1,4 +1,5 @@
 import { Response } from 'express';
+import jwt from 'jsonwebtoken';
 import { AuthRequest } from '../middlewares/auth';
 import Promoteur from '../models/Promoteur';
 import User from '../models/User';
@@ -1071,10 +1072,29 @@ export class PromoteurController {
   static async acceptInvitation(req: AuthRequest, res: Response) {
     try {
       const { token } = req.params;
+      console.log('[acceptInvitation] Controller called - token:', token, 'userId:', req.user!.id);
+      
       const result = await InvitationService.acceptInvitation(token, req.user!.id);
+      console.log('[acceptInvitation] Invitation accepted, user roles:', result.user?.roles);
 
-      res.json(result);
+      // Après avoir accepté l'invitation, générer un nouveau JWT avec les nouveaux rôles
+      console.log('[acceptInvitation] Generating new JWT with updated roles...');
+      const newJWT = jwt.sign(
+        { 
+          id: result.user!._id, 
+          roles: result.user!.roles 
+        },
+        process.env.JWT_SECRET!,
+        { expiresIn: '24h' }
+      );
+      console.log('[acceptInvitation] New JWT generated with roles:', result.user!.roles);
+
+      res.json({ 
+        ...result, 
+        newJWT 
+      });
     } catch (error: any) {
+      console.log('[acceptInvitation] Error:', error.message);
       res.status(400).json({ message: error.message });
     }
   }
@@ -1166,6 +1186,205 @@ export class PromoteurController {
       res.json({ promoteur });
     } catch (error: any) {
       res.status(400).json({ message: error.message });
+    }
+  }
+
+  /**
+   * Get detailed analytics for promoteur dashboard
+   */
+  static async getAnalytics(req: AuthRequest, res: Response) {
+    try {
+      const user = await User.findById(req.user!.id);
+      if (!user?.promoteurProfile) {
+        return res.status(404).json({ message: 'Promoteur profile not found' });
+      }
+
+      const promoteur = await Promoteur.findById(user.promoteurProfile);
+      if (!promoteur) {
+        return res.status(404).json({ message: 'Promoteur not found' });
+      }
+
+      const Lead = require('../models/Lead').default;
+      const Project = require('../models/Project').default;
+
+      // Lead conversion stats (A -> B -> C -> D)
+      const allLeads = await Lead.find({ promoteur: promoteur._id });
+      const scoreA = allLeads.filter((l: any) => l.score === 'A').length;
+      const scoreB = allLeads.filter((l: any) => l.score === 'B').length;
+      const scoreC = allLeads.filter((l: any) => l.score === 'C').length;
+      const scoreD = allLeads.filter((l: any) => l.score === 'D').length;
+      
+      const conversionStats = {
+        totalLeads: allLeads.length,
+        scoreA,
+        scoreB,
+        scoreC,
+        scoreD,
+        conversionRate: {
+          aToB: scoreA > 0 ? 
+            (allLeads.filter((l: any) => l.status === 'contacte' && l.score === 'A').length / 
+             scoreA * 100).toFixed(1) : '0.0',
+          bToC: scoreB > 0 ?
+            (allLeads.filter((l: any) => l.status === 'rdv-planifie' && l.score === 'B').length /
+             scoreB * 100).toFixed(1) : '0.0',
+          cToD: scoreC > 0 ?
+            (allLeads.filter((l: any) => l.status === 'proposition-envoyee' && l.score === 'C').length /
+             scoreC * 100).toFixed(1) : '0.0',
+        }
+      };
+
+      // ROI par projet
+      const projects = await Project.find({ promoteur: promoteur._id });
+      const roiPerProject = projects.map((p: any) => {
+        const projectLeads = allLeads.filter((l: any) => l.project?.toString() === p._id.toString());
+        const wonLeads = projectLeads.filter((l: any) => l.status === 'gagne');
+        return {
+          projectId: p._id,
+          projectTitle: p.title,
+          totalLeads: projectLeads.length,
+          wonLeads: wonLeads.length,
+          conversionRate: projectLeads.length > 0 ? 
+            ((wonLeads.length / projectLeads.length) * 100).toFixed(1) : 0,
+          averageLeadValue: projectLeads.length > 0 ?
+            (projectLeads.reduce((sum: any, l: any) => sum + (l.budget || 0), 0) / projectLeads.length).toFixed(0) : 0,
+        };
+      });
+
+      // Annual revenue estimate (based on leads A/B with conversion probability)
+      const highQualityLeads = allLeads.filter((l: any) => l.score === 'A' || l.score === 'B');
+      const avgBudget = highQualityLeads.length > 0 ?
+        highQualityLeads.reduce((sum: any, l: any) => sum + (l.budget || 0), 0) / highQualityLeads.length : 0;
+      const conversionRate = highQualityLeads.length > 0 ?
+        (allLeads.filter((l: any) => l.status === 'gagne').length / highQualityLeads.length) * 100 : 0;
+      const estimatedAnnualRevenue = (avgBudget * highQualityLeads.length * (conversionRate / 100)).toFixed(0);
+
+      // Time series data (30, 60, 90 days)
+      const calculateTimeSeries = (days: number) => {
+        const startDate = new Date();
+        startDate.setDate(startDate.getDate() - days);
+        return {
+          leadsCreated: allLeads.filter((l: any) => new Date(l.createdAt) >= startDate).length,
+          projectsCreated: projects.filter((p: any) => new Date(p.createdAt) >= startDate).length,
+          avgTrustScore: promoteur.trustScore,
+        };
+      };
+
+      const timeSeries = {
+        days30: calculateTimeSeries(30),
+        days60: calculateTimeSeries(60),
+        days90: calculateTimeSeries(90),
+      };
+
+      // Benchmarking - compare with other verified promoteurs
+      const areaPromoteurs = await Promoteur.find({ 
+        _id: { $ne: promoteur._id },
+        complianceStatus: 'verifie'
+      }).select('trustScore totalLeadsReceived activeProjects');
+
+      const avgTrustScore = areaPromoteurs.length > 0 ?
+        (areaPromoteurs.reduce((sum: any, p: any) => sum + p.trustScore, 0) / areaPromoteurs.length) : 0;
+      const benchmarking = {
+        yourTrustScore: promoteur.trustScore,
+        averageTrustScore: avgTrustScore.toFixed(1),
+        percentile: areaPromoteurs.length > 0 ? 
+          ((areaPromoteurs.filter((p: any) => p.trustScore < promoteur.trustScore).length / areaPromoteurs.length) * 100).toFixed(1) : 0,
+        competitorCount: areaPromoteurs.length,
+      };
+
+      res.json({
+        conversionStats,
+        roiPerProject,
+        estimatedAnnualRevenue,
+        timeSeries,
+        benchmarking,
+      });
+    } catch (error) {
+      console.error('Error getting analytics:', error);
+      res.status(500).json({ message: 'Server error' });
+    }
+  }
+
+  /**
+   * Get leads timeline data for charts
+   */
+  static async getLeadsTimeline(req: AuthRequest, res: Response) {
+    try {
+      const user = await User.findById(req.user!.id);
+      if (!user?.promoteurProfile) {
+        return res.status(404).json({ message: 'Promoteur profile not found' });
+      }
+
+      const { period = '30' } = req.query;
+      const days = parseInt(period as string) || 30;
+      const Lead = require('../models/Lead').default;
+
+      const timeline = [];
+      for (let i = days; i >= 0; i--) {
+        const date = new Date();
+        date.setDate(date.getDate() - i);
+        date.setHours(0, 0, 0, 0);
+        
+        const nextDate = new Date(date);
+        nextDate.setDate(nextDate.getDate() + 1);
+
+        const dayLeads = await Lead.find({
+          promoteur: user.promoteurProfile,
+          createdAt: { $gte: date, $lt: nextDate }
+        });
+
+        timeline.push({
+          date: date.toISOString().split('T')[0],
+          total: dayLeads.length,
+          scoreA: dayLeads.filter((l: any) => l.score === 'A').length,
+          scoreB: dayLeads.filter((l: any) => l.score === 'B').length,
+          completed: dayLeads.filter((l: any) => l.status === 'gagne').length,
+        });
+      }
+
+      res.json({ timeline });
+    } catch (error) {
+      console.error('Error getting leads timeline:', error);
+      res.status(500).json({ message: 'Server error' });
+    }
+  }
+
+  /**
+   * Get revenue forecast based on leads
+   */
+  static async getRevenueForecast(req: AuthRequest, res: Response) {
+    try {
+      const user = await User.findById(req.user!.id);
+      if (!user?.promoteurProfile) {
+        return res.status(404).json({ message: 'Promoteur profile not found' });
+      }
+
+      const Lead = require('../models/Lead').default;
+      const allLeads = await Lead.find({ promoteur: user.promoteurProfile });
+
+      // Calculate based on lead scores and conversion history
+      const scoreALeads = allLeads.filter((l: any) => l.score === 'A');
+      const scoreBLeads = allLeads.filter((l: any) => l.score === 'B');
+      const wonLeads = allLeads.filter((l: any) => l.status === 'gagne');
+
+      const avgLeadValue = allLeads.length > 0 ?
+        allLeads.reduce((sum: any, l: any) => sum + (l.budget || 0), 0) / allLeads.length : 0;
+
+      const conversionRateA = scoreALeads.length > 0 ?
+        scoreALeads.filter((l: any) => l.status === 'gagne').length / scoreALeads.length : 0;
+      const conversionRateB = scoreBLeads.length > 0 ?
+        scoreBLeads.filter((l: any) => l.status === 'gagne').length / scoreBLeads.length : 0;
+
+      const forecast = {
+        conservativeEstimate: (scoreALeads.length * avgLeadValue * conversionRateA).toFixed(0),
+        optimisticEstimate: ((scoreALeads.length + scoreBLeads.length) * avgLeadValue * ((conversionRateA + conversionRateB) / 2)).toFixed(0),
+        historicalRevenue: (wonLeads.reduce((sum: any, l: any) => sum + (l.budget || 0), 0)).toFixed(0),
+        avgConversionRate: ((conversionRateA + conversionRateB) / 2 * 100).toFixed(1),
+      };
+
+      res.json(forecast);
+    } catch (error) {
+      console.error('Error getting revenue forecast:', error);
+      res.status(500).json({ message: 'Server error' });
     }
   }
 }

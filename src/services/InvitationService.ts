@@ -80,16 +80,22 @@ export class InvitationService {
   }
 
   static async acceptInvitation(token: string, userId: string) {
+    console.log('[InvitationService.acceptInvitation] Starting - token:', token, 'userId:', userId);
+
     const invitation = await OrganizationInvitation.findOne({
       token,
       status: 'pending'
     }).populate('promoteur');
 
+    console.log('[InvitationService.acceptInvitation] Invitation found:', !!invitation, invitation?._id);
+
     if (!invitation) {
+      console.log('[InvitationService.acceptInvitation] ERROR: Invitation not found or not pending');
       throw new Error('Invalid or expired invitation');
     }
 
     if (invitation.expiresAt < new Date()) {
+      console.log('[InvitationService.acceptInvitation] ERROR: Invitation expired');
       invitation.status = 'expired';
       await invitation.save();
       throw new Error('Invitation has expired');
@@ -97,29 +103,46 @@ export class InvitationService {
 
     // Récupérer l'utilisateur
     const user = await User.findById(userId);
+    console.log('[InvitationService.acceptInvitation] User found:', !!user, user?.email);
+    
     if (!user) {
+      console.log('[InvitationService.acceptInvitation] ERROR: User not found');
       throw new Error('User not found');
     }
 
+    console.log('[InvitationService.acceptInvitation] Email check - invitation.email:', invitation.email, 'user.email:', user.email, 'match:', invitation.email === user.email);
+
     if (invitation.email !== user.email) {
+      console.log('[InvitationService.acceptInvitation] ERROR: Email does not match');
       throw new Error('Email does not match invitation');
     }
 
     // S'assurer que l'utilisateur a le rôle promoteur
+    console.log('[InvitationService.acceptInvitation] User roles before:', user.roles);
+    
     if (!user.roles.includes(Role.PROMOTEUR)) {
       user.roles.push(Role.PROMOTEUR);
+      console.log('[InvitationService.acceptInvitation] Added PROMOTEUR role');
     }
 
     // Add user to team et lier promoteurProfile
     let promoteur = await Promoteur.findById(invitation.promoteur);
-    if (!promoteur) throw new Error('Promoteur not found');
+    console.log('[InvitationService.acceptInvitation] Promoteur found:', !!promoteur, promoteur?._id);
+    
+    if (!promoteur) {
+      console.log('[InvitationService.acceptInvitation] ERROR: Promoteur not found');
+      throw new Error('Promoteur not found');
+    }
     
     if (!user.promoteurProfile) {
       user.promoteurProfile = promoteur._id;
+      console.log('[InvitationService.acceptInvitation] Set promoteurProfile:', promoteur._id);
     }
 
     // Sauvegarder les changements de l'utilisateur (rôle et promoteurProfile)
+    console.log('[InvitationService.acceptInvitation] Saving user...');
     await user.save();
+    console.log('[InvitationService.acceptInvitation] User saved successfully');
 
     // Déterminer le plan à appliquer selon le rôle de l'invitant (owner)
     // Si l'invitant (owner) est admin, plan premium, sinon standard
@@ -128,11 +151,13 @@ export class InvitationService {
       const ownerUser = await User.findById(promoteur.user);
       if (ownerUser && ownerUser.roles.includes(Role.ADMIN)) {
         planToSet = 'premium';
+        console.log('[InvitationService.acceptInvitation] Plan set to premium (owner is admin)');
       } else {
         planToSet = 'standard';
+        console.log('[InvitationService.acceptInvitation] Plan set to standard');
       }
     } catch (e) {
-      // fallback: ne rien changer
+      console.log('[InvitationService.acceptInvitation] Error determining plan:', e);
     }
 
     // Check if already a member
@@ -140,10 +165,15 @@ export class InvitationService {
       member.userId.toString() === userId
     );
 
+    console.log('[InvitationService.acceptInvitation] Is already member:', isAlreadyMember);
+    console.log('[InvitationService.acceptInvitation] Team members count:', promoteur.teamMembers.length);
+
     if (isAlreadyMember) {
+      console.log('[InvitationService.acceptInvitation] ERROR: User is already a team member');
       throw new Error('User is already a team member');
     }
 
+    console.log('[InvitationService.acceptInvitation] Adding user to team with role:', invitation.role);
     promoteur.teamMembers.push({
       userId: userId as any,
       role: invitation.role,
@@ -153,18 +183,25 @@ export class InvitationService {
     // Mettre à jour le plan si besoin
     if (promoteur.plan !== planToSet) {
       promoteur.plan = planToSet;
+      console.log('[InvitationService.acceptInvitation] Updated plan to:', planToSet);
     }
 
+    console.log('[InvitationService.acceptInvitation] Saving promoteur...');
     await promoteur.save();
+    console.log('[InvitationService.acceptInvitation] Promoteur saved successfully');
 
     // Update invitation
     invitation.status = 'accepted';
     invitation.acceptedAt = new Date();
     invitation.acceptedBy = userId as any;
+    console.log('[InvitationService.acceptInvitation] Updating invitation to accepted...');
     await invitation.save();
+    console.log('[InvitationService.acceptInvitation] Invitation saved successfully');
 
     // Récupérer le user mis à jour pour garantir la cohérence
     const updatedUser = await User.findById(userId);
+    console.log('[InvitationService.acceptInvitation] SUCCESS - Updated user roles:', updatedUser?.roles);
+    
     return { promoteur, invitation, user: updatedUser };
   }
 
@@ -268,7 +305,8 @@ export class InvitationService {
 
   static async getInvitations(promoteurId: string, status?: string) {
     const query: any = { promoteur: promoteurId };
-    if (status) query.status = status;
+    // Par défaut, afficher uniquement les invitations en attente
+    query.status = status || 'pending';
 
     return OrganizationInvitation.find(query)
       .populate('invitedBy', 'firstName lastName email')

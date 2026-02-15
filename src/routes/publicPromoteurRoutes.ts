@@ -1,7 +1,47 @@
 import { Router, Request, Response } from 'express';
+import jwt from 'jsonwebtoken';
 import Promoteur from '../models/Promoteur';
+import User from '../models/User';
+import { authenticateJWT, AuthRequest } from '../middlewares/auth';
+import { InvitationService } from '../services/InvitationService';
 
 const router = Router();
+
+/**
+ * GET /api/public/promoteurs/profile
+ * Récupère le profil de l'utilisateur connecté (sans requérir le rôle PROMOTEUR)
+ * Utilisé pour l'authentification et le chargement initial
+ */
+router.get('/profile', authenticateJWT, async (req: AuthRequest, res: Response) => {
+  try {
+    console.log('[publicPromoteurRoutes.profile] Fetching user:', req.user!.id);
+    const user = await User.findById(req.user!.id);
+    console.log('[publicPromoteurRoutes.profile] User found:', !!user, user?.email);
+    
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    const responseData = {
+      id: user._id,
+      email: user.email,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      phone: user.phone,
+      country: user.country,
+      city: user.city,
+      avatar: user.avatar,
+      roles: user.roles,
+      promoteurProfile: user.promoteurProfile
+    };
+    
+    console.log('[publicPromoteurRoutes.profile] Returning:', JSON.stringify(responseData));
+    res.json(responseData);
+  } catch (error: any) {
+    console.error('[publicPromoteurRoutes.profile] Error:', error.message);
+    res.status(500).json({ message: error.message });
+  }
+});
 
 /**
  * GET /api/public/promoteurs/top-rated
@@ -85,6 +125,39 @@ router.get('/', async (req: Request, res: Response) => {
   } catch (error) {
     console.error('Erreur récupération promoteurs:', error);
     res.status(500).json({ message: 'Erreur serveur', error: (error as any).message });
+  }
+});
+
+/**
+ * POST /api/public/promoteurs/accept-invitation/:token
+ * Accepte une invitation d'équipe (accessible par utilisateur non-PROMOTEUR)
+ */
+router.post('/accept-invitation/:token', authenticateJWT, async (req: AuthRequest, res: Response) => {
+  try {
+    console.log('[acceptInvitation] Controller called - token:', req.params.token, 'userId:', req.user!.id);
+    
+    const result = await InvitationService.acceptInvitation(req.params.token, req.user!.id);
+    console.log('[acceptInvitation] Invitation accepted, user roles:', result.user?.roles);
+
+    // Après avoir accepté l'invitation, générer un nouveau JWT avec les nouveaux rôles
+    console.log('[acceptInvitation] Generating new JWT with updated roles...');
+    const newJWT = jwt.sign(
+      { 
+        id: result.user!._id, 
+        roles: result.user!.roles 
+      },
+      process.env.JWT_SECRET!,
+      { expiresIn: '24h' }
+    );
+    console.log('[acceptInvitation] New JWT generated with roles:', result.user!.roles);
+
+    res.json({ 
+      ...result, 
+      newJWT 
+    });
+  } catch (error: any) {
+    console.log('[acceptInvitation] Error:', error.message);
+    res.status(400).json({ message: error.message });
   }
 });
 

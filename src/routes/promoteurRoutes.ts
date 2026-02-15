@@ -50,7 +50,7 @@ router.post('/team/add', PromoteurController.addTeamMember);
 router.post('/team/invite', PromoteurController.inviteTeamMember);
 router.post('/team/invitations/:id/resend', PromoteurController.resendInvitation);
 router.get('/team/invitations', PromoteurController.getTeamInvitations);
-router.post('/team/invitations/:token/accept', PromoteurController.acceptInvitation);
+// NOTE: /team/invitations/:token/accept is now in publicPromoteurRoutes for non-PROMOTEUR users
 router.delete('/team/invitations/:id', PromoteurController.cancelInvitation);
 router.delete('/team/:userId', PromoteurController.removeTeamMember);
 router.patch('/team/:userId/role', PromoteurController.updateTeamMemberRole);
@@ -67,5 +67,10 @@ router.delete('/plan/change-request', PromoteurController.cancelPlanChangeReques
 router.post('/upload', upload.single('file'), PromoteurController.uploadFile);
 router.post('/upload-doc', upload.single('file'), PromoteurDocumentController.uploadDocumentFile);
 router.post('/compliance/request', PromoteurController.requestComplianceUpgrade);
+
+// Analytics endpoints
+router.get('/analytics/dashboard', PromoteurController.getAnalytics);
+router.get('/analytics/leads-timeline', PromoteurController.getLeadsTimeline);
+router.get('/analytics/revenue-forecast', PromoteurController.getRevenueForecast);
 
 export default router;

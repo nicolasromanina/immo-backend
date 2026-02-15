@@ -54,6 +54,8 @@ import vipRoutes from './routes/vipRoutes';
 import openGraphRoutes from './routes/openGraphRoutes';
 import aiAssistantRoutes from './routes/aiAssistantRoutes';
 import partnerWorkflowRoutes from './routes/partnerWorkflowRoutes';
+import teamManagementRoutes from './routes/teamManagementRoutes';
+import abTestRoutes from './routes/abTestRoutes';
 import swaggerUi from 'swagger-ui-express';
 import swaggerSpec from './config/swagger';
 import { errorHandler } from './middlewares/errorHandler';
@@ -97,6 +99,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/public/promoteurs', publicPromoteurRoutes);
 app.use('/api/promoteurs', promoteurRoutes);
+app.use('/api/team', teamManagementRoutes);
 app.use('/api/projects', projectRoutes);
 app.use('/api/leads', leadRoutes);
 app.use('/api/updates', updateRoutes);
@@ -151,6 +154,7 @@ app.use('/api/vip-requests', vipRoutes);
 app.use('/api/og', openGraphRoutes);
 app.use('/api/ai-assistant', aiAssistantRoutes);
 app.use('/api/partner-workflows', partnerWorkflowRoutes);
+app.use('/api/ab-tests', abTestRoutes);
 
 // API Documentation
 app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
