@@ -35,6 +35,13 @@ export interface IAd extends Document {
     conversions: number;
     ctr: number;
   };
+  // Daily stats for graphs and 7-day analytics
+  dailyStats: Array<{
+    date: Date;
+    impressions: number;
+    clicks: number;
+    spent: number;
+  }>;
   rejectionReason?: string;
   reviewedBy?: mongoose.Types.ObjectId;
   createdAt: Date;
@@ -87,6 +94,12 @@ const adSchema = new Schema<IAd>({
     conversions: { type: Number, default: 0 },
     ctr: { type: Number, default: 0 },
   },
+  dailyStats: [{
+    date: { type: Date, required: true },
+    impressions: { type: Number, default: 0 },
+    clicks: { type: Number, default: 0 },
+    spent: { type: Number, default: 0 },
+  }],
   rejectionReason: String,
   reviewedBy: { type: Schema.Types.ObjectId, ref: 'User' },
 }, { timestamps: true });

@@ -19,6 +19,16 @@ router.post('/promoteurs/:promoteurId/financial-docs/:docId/approve', AdminContr
 
 // Dashboard
 router.get('/dashboard/stats', AdminController.getDashboardStats);
+// SLA endpoints
+router.get('/sla/dashboard', AdminController.getSlaDashboard);
+router.get('/sla/stats', AdminController.getSlaStats);
+// Sanctions endpoints
+router.get('/sanctions', AdminController.getSanctions);
+router.get('/sanctions/:id', AdminController.getSanctionById);
+router.post('/sanctions/manual', authenticateJWT, authorizeRoles(Role.ADMIN), AdminController.applyManualSanction);
+router.post('/sanctions/:id/revoke', authenticateJWT, authorizeRoles(Role.ADMIN), AdminController.revokeSanction);
+router.get('/sanctions/promoteur/:promoteurId', AdminController.getPromoteurSanctions);
+router.get('/sanctions/stats/overview', AdminController.getSanctionsStats);
 
 // Promoteurs management
 router.get('/promoteurs', AdminController.getPromoteurs);
@@ -75,8 +85,13 @@ router.post('/badges/award', AdminController.awardBadge);
 router.post('/badges/correction', AdminController.applyBadgeCorrection);
 router.post('/badges/initialize-defaults', BadgeController.initializeDefaults);
 router.post('/badges/check/:promoteurId', BadgeController.checkAndAward);
+router.post('/badges/assign', authenticateJWT, authorizeRoles(Role.ADMIN), BadgeController.assignBadge);
+router.post('/badges/revoke', authenticateJWT, authorizeRoles(Role.ADMIN), BadgeController.revokeBadge);
 
 // Audit logs
 router.get('/audit-logs', AdminController.getAuditLogs);
+
+// Backfill trust score snapshots (admin)
+router.post('/trust-score-snapshots/backfill', AdminController.backfillTrustScoreSnapshots);
 
 export default router;

@@ -2,7 +2,8 @@ import mongoose, { Schema, Document } from 'mongoose';
 
 export interface IAuditLog extends Document {
   // Who did it
-  actor: mongoose.Types.ObjectId;
+  actor?: mongoose.Types.ObjectId;
+  actorLabel?: string;
   actorRole: string;
   
   // What was done
@@ -30,7 +31,8 @@ export interface IAuditLog extends Document {
 }
 
 const AuditLogSchema: Schema = new Schema({
-  actor: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
+  actor: { type: Schema.Types.ObjectId, ref: 'User', index: true },
+  actorLabel: { type: String },
   actorRole: { type: String, required: true },
   
   action: { type: String, required: true, index: true },

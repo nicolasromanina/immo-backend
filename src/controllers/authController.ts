@@ -33,6 +33,8 @@ export const login = async (req: Request, res: Response) => {
     }
     
     const token = jwt.sign({ id: user._id, roles: user.roles }, process.env.JWT_SECRET || 'secret', { expiresIn: '1d' });
+    console.log('[AuthController.login] User roles after login:', user.roles);
+    console.log('[AuthController.login] Token issued for user:', user.email, 'roles:', user.roles);
     res.json({ token });
   } catch (error) {
     res.status(500).json({ message: 'Login failed', error });

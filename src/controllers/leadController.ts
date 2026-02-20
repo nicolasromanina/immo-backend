@@ -8,6 +8,7 @@ import Appointment from '../models/Appointment';
 import Availability from '../models/Availability';
 import { LeadScoringService } from '../services/LeadScoringService';
 import { NotificationService } from '../services/NotificationService';
+import { RealTimeNotificationService } from '../services/RealTimeNotificationService';
 import { AuditLogService } from '../services/AuditLogService';
 import { CRMWebhookService } from '../services/CRMWebhookService';
 
@@ -70,6 +71,11 @@ export class LeadController {
           leadName: `${firstName} ${lastName}`,
           leadScore: lead.score,
         });
+        // Real-time WebSocket notification
+        await RealTimeNotificationService.notifyNewLead(
+          (promoteur.user as any)._id.toString(),
+          lead
+        );
       }
 
       res.status(201).json({ lead });
@@ -235,6 +241,13 @@ export class LeadController {
         event: 'lead.status_changed',
         payload: { leadId: id, status },
       });
+
+      // Notify client of status change via WebSocket
+      if (lead.client) {
+        await RealTimeNotificationService.notifyLeadStatusChange(
+          lead.client.toString(), lead, status
+        );
+      }
 
       res.json({ lead: updatedLead });
     } catch (error) {

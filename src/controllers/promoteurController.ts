@@ -5,6 +5,7 @@ import Promoteur from '../models/Promoteur';
 import User from '../models/User';
 import { AuditLogService } from '../services/AuditLogService';
 import { TrustScoreService } from '../services/TrustScoreService';
+import { AdvancedTrustScoreService } from '../services/AdvancedTrustScoreService';
 import { BadgeService } from '../services/BadgeService';
 import { OnboardingService } from '../services/OnboardingService';
 import { NotificationService } from '../services/NotificationService';
@@ -374,6 +375,28 @@ export class PromoteurController {
       });
     } catch (error) {
       console.error('Error getting trust score:', error);
+      res.status(500).json({ message: 'Server error' });
+    }
+  }
+
+  /**
+   * Get trust score history for current promoteur
+   */
+  static async getTrustScoreHistory(req: AuthRequest, res: Response) {
+    try {
+      const user = await User.findById(req.user!.id);
+      if (!user?.promoteurProfile) {
+        return res.status(404).json({ message: 'Promoteur profile not found' });
+      }
+
+      const promoteurId = user.promoteurProfile.toString();
+      const days = req.query.days ? parseInt(req.query.days as string) : 30;
+
+      const history = await AdvancedTrustScoreService.getScoreHistory(promoteurId, days);
+
+      res.json({ history });
+    } catch (error) {
+      console.error('Error getting trust score history:', error);
       res.status(500).json({ message: 'Server error' });
     }
   }
@@ -1384,6 +1407,268 @@ export class PromoteurController {
       res.json(forecast);
     } catch (error) {
       console.error('Error getting revenue forecast:', error);
+      res.status(500).json({ message: 'Server error' });
+    }
+  }
+
+  /**
+   * Get growth dashboard data: active campaigns (ads, A/B tests, boosts, featured slots)
+   * and dynamic recommendations based on promoteur's current activity.
+   */
+  static async getGrowthDashboard(req: AuthRequest, res: Response) {
+    try {
+      const user = await User.findById(req.user!.id);
+      if (!user?.promoteurProfile) {
+        return res.status(404).json({ message: 'Promoteur profile not found' });
+      }
+
+      const promoteur = await Promoteur.findById(user.promoteurProfile);
+      if (!promoteur) {
+        return res.status(404).json({ message: 'Promoteur not found' });
+      }
+
+      const Ad = require('../models/Ad').default;
+      const ABTest = require('../models/ABTest').default;
+      const Payment = require('../models/Payment').default;
+      const FeaturedSlot = require('../models/FeaturedSlot').default;
+      const Lead = require('../models/Lead').default;
+      const Project = require('../models/Project').default;
+
+      // 1. Active Ads
+      const ads = await Ad.find({ promoteur: promoteur._id })
+        .sort({ createdAt: -1 })
+        .limit(10)
+        .lean();
+
+      // 2. Active A/B Tests
+      const abTests = await ABTest.find({ promoteurId: promoteur._id })
+        .sort({ createdAt: -1 })
+        .limit(10)
+        .lean();
+
+      // 3. Active Boost payments
+      const boostPayments = await Payment.find({
+        promoteur: promoteur._id,
+        type: 'boost',
+        status: 'succeeded',
+      })
+        .sort({ createdAt: -1 })
+        .limit(10)
+        .lean();
+
+      // 4. Featured Slots
+      let featuredSlots: any[] = [];
+      try {
+        featuredSlots = await FeaturedSlot.find({
+          $or: [
+            { entity: promoteur._id },
+            { promoteur: promoteur._id },
+          ]
+        })
+          .sort({ createdAt: -1 })
+          .limit(10)
+          .lean();
+      } catch (e) {
+        // FeaturedSlot may not have matching field
+      }
+
+      // Build unified campaigns list
+      const campaigns: any[] = [];
+
+      // Map ads to campaigns
+      for (const ad of ads) {
+        const statusMap: Record<string, string> = {
+          'active': 'active',
+          'pending-review': 'pending',
+          'draft': 'draft',
+          'paused': 'paused',
+          'completed': 'completed',
+          'rejected': 'rejected',
+          'expired': 'expired',
+        };
+        campaigns.push({
+          id: ad._id,
+          name: ad.title || ad.creative?.headline || `Campagne publicitaire`,
+          type: 'ad',
+          adType: ad.type,
+          status: statusMap[ad.status] || ad.status,
+          metrics: ad.metrics || { impressions: 0, clicks: 0, conversions: 0, ctr: 0 },
+          budget: ad.budget || {},
+          createdAt: ad.createdAt,
+        });
+      }
+
+      // Map A/B tests to campaigns
+      for (const test of abTests) {
+        const totalViews = (test.variants || []).reduce((sum: number, v: any) => sum + (v.views || 0), 0);
+        const totalClicks = (test.variants || []).reduce((sum: number, v: any) => sum + (v.clicks || 0), 0);
+        const improvement = totalViews > 0 ? ((totalClicks / totalViews) * 100).toFixed(0) : '0';
+
+        campaigns.push({
+          id: test._id,
+          name: `A/B Test - ${test.testType === 'description' ? 'Descriptions' : 'Images'}`,
+          type: 'ab-test',
+          status: test.status === 'active' ? 'active' : test.status === 'completed' ? 'completed' : 'paused',
+          metrics: {
+            views: totalViews,
+            clicks: totalClicks,
+            improvement: `+${improvement}%`,
+          },
+          winner: test.winnerVariantId || null,
+          createdAt: test.createdAt,
+        });
+      }
+
+      // Map boosts to campaigns
+      for (const payment of boostPayments) {
+        const bd = payment.boostDetails || {};
+        const isActive = bd.endDate ? new Date(bd.endDate) > new Date() : false;
+
+        // Try to get project name
+        let projectName = 'Projet';
+        if (bd.projectId) {
+          try {
+            const project = await Project.findById(bd.projectId).select('title name').lean();
+            if (project) projectName = (project as any).title || (project as any).name || 'Projet';
+          } catch (e) {}
+        }
+
+        campaigns.push({
+          id: payment._id,
+          name: `Boost - ${projectName}`,
+          type: 'boost',
+          boostType: bd.boostType || 'basic',
+          status: isActive ? 'active' : 'expired',
+          amount: payment.amount,
+          startDate: bd.startDate,
+          endDate: bd.endDate,
+          createdAt: payment.createdAt,
+        });
+      }
+
+      // Map featured slots
+      for (const slot of featuredSlots) {
+        campaigns.push({
+          id: slot._id,
+          name: `Mise en avant - ${slot.placement || 'annuaires'}`,
+          type: 'featured',
+          status: slot.status === 'active' ? 'active' : slot.status,
+          metrics: {
+            impressions: slot.impressions || 0,
+            clicks: slot.clicks || 0,
+          },
+          createdAt: slot.createdAt,
+        });
+      }
+
+      // Sort by most recent
+      campaigns.sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+      // Compute summary stats
+      const activeCampaigns = campaigns.filter((c: any) => c.status === 'active');
+      const totalImpressions = campaigns.reduce((sum: number, c: any) => sum + (c.metrics?.impressions || 0), 0);
+      const totalClicks = campaigns.reduce((sum: number, c: any) => sum + (c.metrics?.clicks || 0), 0);
+      const totalConversions = campaigns.reduce((sum: number, c: any) => sum + (c.metrics?.conversions || 0), 0);
+      const totalSpent = campaigns
+        .filter((c: any) => c.type === 'ad')
+        .reduce((sum: number, c: any) => sum + (c.budget?.spent || 0), 0);
+
+      // Generate dynamic recommendations
+      const recommendations: any[] = [];
+      const leadCount = await Lead.countDocuments({ promoteur: promoteur._id });
+      const projectCount = await Project.countDocuments({ promoteur: promoteur._id, status: { $in: ['published', 'active'] } });
+
+      const hasActiveAds = ads.some((a: any) => a.status === 'active');
+      const hasActiveTests = abTests.some((t: any) => t.status === 'active');
+      const hasBoosts = boostPayments.length > 0;
+
+      if (!hasActiveTests && projectCount > 0) {
+        recommendations.push({
+          icon: '🎯',
+          title: 'Optimisez avec A/B Testing',
+          description: `Vous avez ${projectCount} projet(s) actif(s). Testez différentes descriptions pour augmenter vos conversions.`,
+          action: '/ab-testing',
+          priority: 'high',
+        });
+      }
+
+      if (!hasBoosts && projectCount > 0) {
+        recommendations.push({
+          icon: '⚡',
+          title: 'Boostez vos projets',
+          description: 'Les projets boostés reçoivent en moyenne 3x plus de visibilité sur la plateforme.',
+          action: '/boost-project',
+          priority: 'high',
+        });
+      }
+
+      if (!hasActiveAds && leadCount > 5) {
+        recommendations.push({
+          icon: '📧',
+          title: 'Lancez une campagne publicitaire',
+          description: `Avec ${leadCount} leads, une campagne ciblée pourrait convertir davantage de prospects.`,
+          action: '/ads',
+          priority: 'medium',
+        });
+      }
+
+      if (hasActiveTests) {
+        const activeTests = abTests.filter((t: any) => t.status === 'active');
+        recommendations.push({
+          icon: '📊',
+          title: `${activeTests.length} test(s) A/B en cours`,
+          description: 'Consultez les résultats pour optimiser vos descriptions et images.',
+          action: '/ab-testing',
+          priority: 'low',
+        });
+      }
+
+      if (activeCampaigns.length === 0 && recommendations.length === 0) {
+        recommendations.push(
+          {
+            icon: '🚀',
+            title: 'Commencez par un boost',
+            description: 'Mettez en avant vos meilleurs projets pour attirer plus de leads qualifiés.',
+            action: '/boost-project',
+            priority: 'high',
+          },
+          {
+            icon: '🎯',
+            title: 'Testez vos contenus',
+            description: 'L\'A/B Testing vous aide à trouver les descriptions les plus performantes.',
+            action: '/ab-testing',
+            priority: 'medium',
+          },
+          {
+            icon: '📧',
+            title: 'Campagnes email',
+            description: 'Contactez directement les leads intéressés pour accélérer vos ventes.',
+            action: '/ads',
+            priority: 'medium',
+          }
+        );
+      }
+
+      res.json({
+        campaigns,
+        summary: {
+          totalCampaigns: campaigns.length,
+          activeCampaigns: activeCampaigns.length,
+          totalImpressions,
+          totalClicks,
+          totalConversions,
+          totalSpent,
+        },
+        recommendations,
+        tools: {
+          boost: { count: boostPayments.length, active: boostPayments.filter((p: any) => p.boostDetails?.endDate && new Date(p.boostDetails.endDate) > new Date()).length },
+          abTests: { count: abTests.length, active: abTests.filter((t: any) => t.status === 'active').length },
+          ads: { count: ads.length, active: ads.filter((a: any) => a.status === 'active').length },
+          featured: { count: featuredSlots.length, active: featuredSlots.filter((s: any) => s.status === 'active').length },
+        },
+      });
+    } catch (error) {
+      console.error('Error getting growth dashboard:', error);
       res.status(500).json({ message: 'Server error' });
     }
   }

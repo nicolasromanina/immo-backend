@@ -3,6 +3,7 @@ import Stripe from 'stripe';
 import { stripe, SUBSCRIPTION_PRICES, BOOST_PRICES } from '../config/stripe';
 import Subscription from '../models/Subscription';
 import Payment from '../models/Payment';
+import Project from '../models/Project';
 import Promoteur from '../models/Promoteur';
 import User from '../models/User';
 import { NotificationService } from '../services/NotificationService';
@@ -59,6 +60,9 @@ export const createCheckoutSession = async (req: Request, res: Response) => {
 
     // Créer la session Checkout
     const promoteurUrl = process.env.PROMOTEUR_URL || 'http://localhost:8081';
+    console.log('[BOOST] PROMOTEUR_URL utilisé pour Stripe:', promoteurUrl);
+    console.log('[BOOST] Stripe success_url:', `${promoteurUrl}/boost-success?session_id={CHECKOUT_SESSION_ID}`);
+    console.log('[BOOST] Stripe cancel_url:', `${promoteurUrl}/boost-project`);
     const session = await stripe.checkout.sessions.create({
       customer: stripeCustomerId,
       payment_method_types: ['card'],
@@ -102,10 +106,19 @@ export const createCheckoutSession = async (req: Request, res: Response) => {
 export const createBoostCheckoutSession = async (req: Request, res: Response) => {
   try {
     const userId = (req as any).user?.id;
-    const { projectId, boostType, customAmount, duration } = req.body;
+    const { projectId, promoteurId, boostType, customAmount, duration, entityType, placement } = req.body;
 
     if (!userId) {
       return res.status(401).json({ message: 'Non authentifié' });
+    }
+
+    // Vérifier qu'on a soit projectId soit promoteurId (mais pas les deux)
+    if (!projectId && !promoteurId) {
+      return res.status(400).json({ message: 'projectId ou promoteurId requis' });
+    }
+
+    if (projectId && promoteurId) {
+      return res.status(400).json({ message: 'Fournir soit projectId soit promoteurId, mais pas les deux' });
     }
 
     const user = await User.findById(userId);
@@ -113,6 +126,11 @@ export const createBoostCheckoutSession = async (req: Request, res: Response) =>
 
     if (!promoteur) {
       return res.status(404).json({ message: 'Promoteur non trouvé' });
+    }
+
+    // Si promoteurId, vérifier que c'est le promoteur courant
+    if (promoteurId && promoteurId !== promoteur._id.toString()) {
+      return res.status(403).json({ message: 'Impossible de booster le profil d\'un autre promoteur' });
     }
 
     // Déterminer le montant
@@ -131,7 +149,8 @@ export const createBoostCheckoutSession = async (req: Request, res: Response) =>
         });
       }
       
-      description = `Boost projet personnalisé (${amountInEuros}€)`;
+      const targetType = projectId ? 'projet' : 'profil';
+      description = `Boost ${targetType} personnalisé (${amountInEuros}€)`;
     } else if (boostType) {
       // Montant prédéfini par type
       if (!['basic', 'premium', 'enterprise'].includes(boostType)) {
@@ -164,6 +183,13 @@ export const createBoostCheckoutSession = async (req: Request, res: Response) =>
 
     const promoteurUrl = process.env.PROMOTEUR_URL || 'http://localhost:8081';
 
+    console.log('[BOOST] Création de session boost');
+    console.log('[BOOST] Type:', projectId ? 'projet' : 'profil');
+    if (projectId) console.log('[BOOST] projectId:', projectId);
+    if (promoteurId) console.log('[BOOST] promoteurId:', promoteurId);
+    console.log('[BOOST] Montant:', amount, 'centimes (', amount / 100, '€)');
+    console.log('[BOOST] Placement:', placement || 'default');
+
     // Créer la session Checkout
     const session = await stripe.checkout.sessions.create({
       customer: stripeCustomerId,
@@ -175,28 +201,39 @@ export const createBoostCheckoutSession = async (req: Request, res: Response) =>
             currency: 'eur',
             product_data: {
               name: `Boost : ${description}`,
-              description: `Projet: ${projectId}`,
+              description: projectId ? `Projet: ${projectId}` : `Profil promoteur`,
             },
             unit_amount: amount,
           },
           quantity: 1,
         },
       ],
-      success_url: `${promoteurUrl}/promoteur/boost/success?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${promoteurUrl}/boost-project`,
+      success_url: `${promoteurUrl}/boost-success?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${promoteurUrl}/${projectId ? 'boost-project' : 'profile'}`,
       metadata: {
         userId: userId.toString(),
         promoteurId: promoteur._id.toString(),
-        projectId: projectId,
+        projectId: projectId || null,
+        promoteurBoostId: promoteurId || null,
+        boostType: boostType || 'custom',
+        duration: (duration || 30).toString(),
         amount: amount.toString(),
         paymentType: 'boost',
+        entityType: projectId ? 'project' : 'promoteur',
+        placement: placement || 'annuaires',
       },
     });
 
+    console.log('[BOOST] ✅ Session Stripe créée avec succès');
+    console.log('[BOOST] Session ID:', session.id);
+
     res.json({ sessionId: session.id, url: session.url });
   } catch (error: any) {
-    console.error('Erreur création session boost:', error);
-    res.status(500).json({ message: 'Erreur lors de la création de la session', error: error.message });
+    console.error('[BOOST] ❌ Erreur création session boost:', error);
+    res.status(500).json({ 
+      message: 'Erreur lors de la création de la session', 
+      error: error.message
+    });
   }
 };
 
@@ -204,11 +241,15 @@ export const createBoostCheckoutSession = async (req: Request, res: Response) =>
  * Webhook Stripe pour gérer les événements
  */
 export const handleStripeWebhook = async (req: Request, res: Response) => {
+  console.log('[STRIPE WEBHOOK] 🔔 Webhook endpoint hit!');
+  console.log('[STRIPE WEBHOOK] Method:', req.method);
+  console.log('[STRIPE WEBHOOK] URL:', req.url);
+  
   const sig = req.headers['stripe-signature'] as string;
   const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
 
   if (!webhookSecret) {
-    console.error('STRIPE_WEBHOOK_SECRET non défini');
+    console.error('❌ STRIPE_WEBHOOK_SECRET non défini');
     return res.status(500).send('Configuration webhook manquante');
   }
 
@@ -216,8 +257,9 @@ export const handleStripeWebhook = async (req: Request, res: Response) => {
 
   try {
     event = stripe.webhooks.constructEvent(req.body, sig, webhookSecret);
+    console.log('[STRIPE WEBHOOK] ✅ Webhook verified successfully');
   } catch (err: any) {
-    console.error('Erreur webhook:', err.message);
+    console.error('❌ Erreur webhook signature:', err.message);
     return res.status(400).send(`Webhook Error: ${err.message}`);
   }
 
@@ -226,12 +268,14 @@ export const handleStripeWebhook = async (req: Request, res: Response) => {
   const eventData = event.data.object as any;
   if (eventData.metadata) {
     console.log('[STRIPE WEBHOOK] Metadata:', eventData.metadata);
+    console.log('[STRIPE WEBHOOK] Payment Type:', eventData.metadata.paymentType);
   }
 
   try {
     switch (event.type) {
       case 'checkout.session.completed':
-        console.log('[STRIPE WEBHOOK] Processing checkout.session.completed');
+        console.log('[STRIPE WEBHOOK] 🎯 Processing checkout.session.completed');
+        console.log('[STRIPE WEBHOOK] Payment Type from metadata:', eventData.metadata?.paymentType);
         await handleCheckoutSessionCompleted(event.data.object);
         break;
 
@@ -262,7 +306,8 @@ export const handleStripeWebhook = async (req: Request, res: Response) => {
 
     res.json({ received: true });
   } catch (error: any) {
-    console.error('Erreur traitement webhook:', error);
+    console.error('❌ Erreur traitement webhook:', error);
+    console.error('❌ Stack:', error.stack);
     res.status(500).json({ error: error.message });
   }
 };
@@ -459,25 +504,104 @@ async function handleCheckoutSessionCompleted(session: any) {
     const startDate = new Date();
     const duration = parseInt(session.metadata.duration) || 30;
     const endDate = new Date(startDate.getTime() + duration * 24 * 60 * 60 * 1000);
+    const entityType = session.metadata.entityType || 'project';
+    const placement = session.metadata.placement || 'annuaires';
 
-    await Payment.create({
-      promoteur: promoteurId,
-      amount: session.amount_total,
-      currency: session.currency,
-      type: 'boost',
-      status: 'succeeded',
-      stripePaymentIntentId: session.payment_intent,
-      boostDetails: {
-        projectId: session.metadata.projectId || null,
-        boostType: session.metadata.boostType,
-        duration,
+    console.log('[BOOST CREATION] Processing boost type:', entityType);
+    console.log('[BOOST CREATION] Placement:', placement);
+
+    if (entityType === 'promoteur') {
+      // Créer un FeaturedSlot pour le profil promoteur
+      const { default: FeaturedSlot } = await import('../models/FeaturedSlot');
+      
+      const featuredSlot = new (FeaturedSlot)({
+        entityType: 'promoteur',
+        entity: promoteurId,
+        placement,
         startDate,
         endDate,
-      },
-      metadata: session.metadata,
-    });
+        status: 'scheduled', // Admin doit approuver
+        type: 'paid',
+        payment: {
+          amount: session.amount_total,
+          currency: session.currency.toUpperCase(),
+          paidAt: new Date(),
+        },
+        impressions: 0,
+        clicks: 0,
+        createdBy: promoteurId,
+      });
 
-    console.log(`Boost créé pour promoteur ${promoteurId}`);
+      await featuredSlot.save();
+
+      console.log(`[✅ PROMOTEUR FEATURED SLOT CREATED]`, {
+        slotId: featuredSlot._id,
+        promoteurId,
+        placement,
+        amount: session.amount_total,
+        duration,
+      });
+
+      // Créer un Payment record pour le tracking
+      await Payment.create({
+        promoteur: promoteurId,
+        amount: session.amount_total,
+        currency: session.currency,
+        type: 'boost',
+        status: 'succeeded',
+        approvalStatus: 'pending',
+        stripePaymentIntentId: session.payment_intent,
+        boostDetails: {
+          projectId: null,
+          entityType: 'promoteur',
+          boostType: session.metadata.boostType,
+          duration,
+          startDate,
+          endDate,
+          featuredSlotId: featuredSlot._id.toString(),
+        },
+        metadata: session.metadata,
+      });
+
+      return;
+    }
+
+    if (entityType === 'project') {
+      // Créer un enregistrement de paiement pour le boost projet (existing logic)
+      const boostPayment = await Payment.create({
+        promoteur: promoteurId,
+        amount: session.amount_total,
+        currency: session.currency,
+        type: 'boost',
+        status: 'succeeded',
+        approvalStatus: 'pending',
+        stripePaymentIntentId: session.payment_intent,
+        boostDetails: {
+          projectId: session.metadata.projectId || null,
+          entityType: 'project',
+          boostType: session.metadata.boostType,
+          duration,
+          startDate,
+          endDate,
+        },
+        metadata: session.metadata,
+      });
+
+      const savedBoost = await Payment.findById(boostPayment._id);
+      console.log('[BOOST VERIFICATION] Boost projet saved in DB with promoteur:', savedBoost?.promoteur);
+
+      console.log(`[✅ BOOST CREATED] Boost créé pour promoteur ${promoteurId}`);
+      console.log(`[BOOST DETAILS]`, {
+        boostId: boostPayment._id,
+        promoteurId,
+        amount: session.amount_total,
+        approvalStatus: boostPayment.approvalStatus,
+        projectId: session.metadata.projectId,
+        boostType: session.metadata.boostType,
+      });
+
+      return;
+    }
   }
 
   if (plan && session.subscription) {
@@ -526,6 +650,10 @@ async function handleCheckoutSessionCompleted(session: any) {
     }
     console.log(`Abonnement ${plan} activé pour promoteur ${promoteurId}`);
   }
+
+  // Final verification - check total boosts
+  const totalBoosts = await Payment.countDocuments({ type: 'boost', approvalStatus: 'pending' });
+  console.log('[handleCheckoutSessionCompleted] FINAL CHECK - Total pending boosts in DB:', totalBoosts);
 }
 
 
@@ -697,7 +825,199 @@ async function handleSubscriptionDeleted(subscription: any) {
 
 // Payment intent handlers consolidated later in the file
 
+/**
+ * Récupérer un JWT token après validation d'une session de boost/payment
+ * Utilisé après la redirection depuis Stripe pour authentifier l'utilisateur
+ */
+export const getTokenFromBoostSession = async (req: Request, res: Response) => {
+  try {
+    const sessionId = req.query.session_id as string;
 
+    if (!sessionId) {
+      return res.status(400).json({ message: 'Session ID requis' });
+    }
+
+    console.log('[getTokenFromBoostSession] Récupération du token pour session:', sessionId);
+
+    // Récupérer les détails de la session depuis Stripe
+    const session = await stripe.checkout.sessions.retrieve(sessionId);
+    
+    console.log('[getTokenFromBoostSession] Session Stripe:', {
+      id: session.id,
+      payment_status: session.payment_status,
+      metadata: session.metadata,
+    });
+
+    // Vérifier que le paiement est complété
+    if (session.payment_status !== 'paid') {
+      console.warn('[getTokenFromBoostSession] Payment not paid:', session.payment_status);
+      return res.status(400).json({ 
+        message: 'Paiement non complété',
+        status: session.payment_status 
+      });
+    }
+
+    // Récupérer l'user ID depuis les métadatas
+    const userId = session.metadata?.userId;
+    if (!userId) {
+      console.error('[getTokenFromBoostSession] No userId in session metadata');
+      return res.status(400).json({ message: 'User ID non trouvé dans la session' });
+    }
+
+    // Récupérer l'utilisateur
+    const user = await User.findById(userId);
+    if (!user) {
+      console.error('[getTokenFromBoostSession] User not found:', userId);
+      return res.status(404).json({ message: 'Utilisateur non trouvé' });
+    }
+
+    // Générer un JWT token
+    const jwt = require('jsonwebtoken');
+    const token = jwt.sign(
+      { 
+        id: user._id.toString(),
+        email: user.email,
+        roles: user.roles,
+      },
+      process.env.JWT_SECRET || 'your-secret-key',
+      { expiresIn: process.env.JWT_EXPIRES_IN || '1d' }
+    );
+
+    console.log('[getTokenFromBoostSession] ✅ Token généré pour user:', userId);
+
+    res.json({ 
+      token,
+      userId: user._id.toString(),
+      email: user.email,
+      roles: user.roles,
+      message: 'Token généré avec succès'
+    });
+  } catch (error: any) {
+    console.error('[getTokenFromBoostSession] Erreur:', error);
+
+    if (error.type === 'StripeInvalidRequestError') {
+      return res.status(400).json({ 
+        message: 'Session invalide ou expirée',
+        error: error.message 
+      });
+    }
+
+    res.status(500).json({ 
+      message: 'Erreur lors de la récupération du token',
+      error: error.message 
+    });
+  }
+};
+
+/**
+ * Vérifier qu'une session de boost a bien été complétée
+ * Utilisé après la redirection depuis Stripe pour valider le boost
+ */
+export const verifyBoostSession = async (req: Request, res: Response) => {
+  try {
+    const sessionId = req.query.session_id as string;
+
+    if (!sessionId) {
+      return res.status(400).json({ message: 'Session ID requis' });
+    }
+
+    console.log('[verifyBoostSession] Vérification de la session:', sessionId);
+
+    // Récupérer les détails de la session depuis Stripe
+    const session = await stripe.checkout.sessions.retrieve(sessionId);
+    
+    console.log('[verifyBoostSession] Session Stripe trouvée:', {
+      id: session.id,
+      mode: session.mode,
+      payment_status: session.payment_status,
+      metadata: session.metadata
+    });
+
+    // Vérifier que le paiement est complété
+    if (session.payment_status !== 'paid') {
+      return res.status(400).json({ 
+        message: 'Paiement non complété',
+        status: session.payment_status 
+      });
+    }
+
+    // Vérifier que c'est un boost (mode payment et metadata paymentType = boost)
+    if (session.mode !== 'payment' || session.metadata?.paymentType !== 'boost') {
+      return res.status(400).json({ 
+        message: 'Session invalide (pas un boost)' 
+      });
+    }
+
+    // Vérifier qu'un Payment record existe pour cette session
+    const payment = await Payment.findOne({
+      stripePaymentIntentId: session.payment_intent
+    });
+
+    if (!payment) {
+      console.warn('[verifyBoostSession] Payment record not found for session', sessionId);
+      console.log('[verifyBoostSession] Creating payment record as fallback (webhook may not have run)...');
+      
+      // FALLBACK: Créer le payment record si le webhook ne l'a pas fait
+      const startDate = new Date();
+      const duration = parseInt(session.metadata?.duration) || 30;
+      const endDate = new Date(startDate.getTime() + duration * 24 * 60 * 60 * 1000);
+      
+      try {
+        const newPayment = await Payment.create({
+          promoteur: session.metadata?.promoteurId,
+          amount: session.amount_total,
+          currency: session.currency,
+          type: 'boost',
+          status: 'succeeded',
+          approvalStatus: 'pending',
+          stripePaymentIntentId: session.payment_intent,
+          boostDetails: {
+            projectId: session.metadata?.projectId || null,
+            boostType: session.metadata?.boostType || 'custom',
+            duration,
+            startDate,
+            endDate,
+          },
+          metadata: session.metadata,
+        });
+        
+        console.log('[verifyBoostSession] ✅ Payment record created successfully (fallback):', {
+          paymentId: newPayment._id,
+          promoteurId: newPayment.promoteur,
+          approvalStatus: newPayment.approvalStatus
+        });
+      } catch (err: any) {
+        console.error('[verifyBoostSession] ❌ Failed to create payment record:', err.message);
+      }
+    } else {
+      console.log('[verifyBoostSession] ✅ Payment record found');
+    }
+
+    res.json({ 
+      valid: true,
+      sessionId: session.id,
+      amount: session.amount_total,
+      currency: session.currency,
+      projectId: session.metadata?.projectId,
+      message: 'Session de boost valide',
+      paymentCreated: !payment // Indicate if we had to create the payment
+    });
+  } catch (error: any) {
+    console.error('[verifyBoostSession] Erreur:', error);
+
+    if (error.type === 'StripeInvalidRequestError') {
+      return res.status(400).json({ 
+        message: 'Session invalide ou expirée',
+        error: error.message 
+      });
+    }
+
+    res.status(500).json({ 
+      message: 'Erreur lors de la vérification de la session',
+      error: error.message 
+    });
+  }
+};
 
 /**
  * Annuler un abonnement
@@ -804,6 +1124,46 @@ export const getPaymentHistory = async (req: Request, res: Response) => {
     res.status(500).json({ message: 'Erreur lors de la récupération', error: error.message });
   }
 };
+
+/**
+ * Gérer l'échec d'un payment intent
+ */
+async function handlePaymentIntentFailed(paymentIntent: any) {
+  // Update payment record status
+  await Payment.findOneAndUpdate(
+    { stripePaymentIntentId: paymentIntent.id },
+    {
+      status: 'failed',
+      errorMessage: paymentIntent.last_payment_error?.message || 'Payment failed',
+      errorCode: paymentIntent.last_payment_error?.code,
+    }
+  );
+
+  console.log('[PAYMENT INTENT FAILED] Processing failed payment intent:', {
+    id: paymentIntent.id,
+    amount: paymentIntent.amount,
+    metadata: paymentIntent.metadata,
+    errorMessage: paymentIntent.last_payment_error?.message,
+    errorCode: paymentIntent.last_payment_error?.code,
+  });
+
+  // Notify user of payment failure
+  const userId = paymentIntent.metadata?.userId;
+  if (userId) {
+    try {
+      await NotificationService.create({
+        recipient: userId,
+        type: 'warning',
+        title: 'Paiement échoué',
+        message: `Votre paiement de ${paymentIntent.amount / 100}€ a échoué. Veuillez réessayer ou contacter notre support.`,
+        priority: 'high',
+        channels: { inApp: true, email: true },
+      });
+    } catch (error) {
+      console.error('[PAYMENT INTENT FAILED] Failed to create notification:', error);
+    }
+  }
+}
 
 /**
  * Gérer le succès d'un payment intent
@@ -936,33 +1296,207 @@ async function handlePaymentIntentSucceeded(paymentIntent: any) {
 }
 
 /**
- * Gérer l'échec d'un payment intent
+ * Lister tous les boosts en attente d'approbation (admin uniquement)
  */
-async function handlePaymentIntentFailed(paymentIntent: any) {
-  // Update payment record status
-  await Payment.findOneAndUpdate(
-    { stripePaymentIntentId: paymentIntent.id },
-    {
-      status: 'failed',
-      errorMessage: paymentIntent.last_payment_error?.message,
+export const getPendingBoosts = async (req: Request, res: Response) => {
+  try {
+    console.log('[getPendingBoosts] Récupération des boosts en attente...');
+
+    const boosts = await Payment.find({
+      type: 'boost',
+      status: 'succeeded',
+      approvalStatus: 'pending'
+    })
+      .populate('promoteur', 'organizationName email user')
+      .populate('boostDetails.projectId', 'title location')
+      .sort({ createdAt: -1 });
+
+    console.log('[getPendingBoosts] Found', boosts.length, 'pending boosts');
+    
+    if (boosts.length > 0) {
+      console.log('[getPendingBoosts] First boost:', {
+        _id: boosts[0]._id,
+        promoteur: boosts[0].promoteur,
+        projectId: boosts[0].boostDetails?.projectId
+      });
     }
-  );
 
-  console.log('[PAYMENT INTENT FAILED] Payment failed:', paymentIntent.id);
+    res.json({ boosts });
+  } catch (error: any) {
+    console.error('[getPendingBoosts] Erreur:', error);
+    res.status(500).json({ 
+      message: 'Erreur lors de la récupération des boosts en attente',
+      error: error.message 
+    });
+  }
+};
 
-  const customerId = paymentIntent.customer;
-  if (customerId) {
-    const promoteur = await Promoteur.findOne({ stripeCustomerId: customerId });
+/**
+ * Approuver un boost (admin uniquement)
+ */
+export const approveBoost = async (req: Request, res: Response) => {
+  try {
+    const { boostId } = req.body;
+
+    if (!boostId) {
+      return res.status(400).json({ message: 'Boost ID requis' });
+    }
+
+    console.log('[approveBoost] Approbation du boost:', boostId);
+
+    // Trouver le boost
+    const boost = await Payment.findById(boostId)
+      .populate('boostDetails.projectId')
+      .populate('promoteur');
+
+    if (!boost) {
+      return res.status(404).json({ message: 'Boost non trouvé' });
+    }
+
+    if (boost.type !== 'boost' || boost.status !== 'succeeded') {
+      return res.status(400).json({ message: 'Seuls les boosts payés peuvent être approuvés' });
+    }
+
+    if (boost.approvalStatus === 'approved' || boost.approvalStatus === 'rejected') {
+      return res.status(400).json({ 
+        message: 'Ce boost a déjà été traité',
+        currentStatus: boost.approvalStatus
+      });
+    }
+
+    // Mettre à jour le boost
+    boost.approvalStatus = 'approved';
+    await boost.save();
+
+    console.log('[approveBoost] ✅ Boost approuvé:', {
+      boostId: boost._id,
+      projectId: boost.boostDetails?.projectId,
+      promoteurId: boost.promoteur?._id
+    });
+
+    // Ajouter le boost au projet
+    const project = boost.boostDetails?.projectId as any;
+    const projectBoostEntry = {
+      paymentId: boost._id,
+      type: boost.boostDetails?.boostType,
+      startDate: boost.boostDetails?.startDate,
+      endDate: boost.boostDetails?.endDate,
+      status: 'active'
+    };
+
+    if (project) {
+      // Ajouter le boost au tableau des boosts actifs du projet
+      await Project.findByIdAndUpdate(
+        project._id,
+        {
+          $push: { boosts: projectBoostEntry }
+        },
+        { new: true }
+      );
+
+      console.log('[approveBoost] ✅ Boost ajouté au projet:', {
+        projectIdFromDb: project._id,
+        boostType: boost.boostDetails?.boostType,
+        duration: `${boost.boostDetails?.duration} jours`
+      });
+    }
+
+    // Notifier le promoteur
+    const promoteur = boost.promoteur as any;
+
+    if (promoteur?.user) {
+      try {
+        await NotificationService.create({
+          recipient: promoteur.user.toString(),
+          type: 'system',
+          title: 'Boost approuvé !',
+          message: `Votre boost pour le projet "${project?.title || 'votre projet'}" a été approuvé et est maintenant actif pendant ${boost.boostDetails?.duration || 30} jours.`,
+          priority: 'high',
+          channels: { inApp: true, email: true },
+        });
+        console.log('[approveBoost] ✅ Notification envoyée au promoteur:', promoteur.user);
+      } catch (notifError: any) {
+        console.error('[approveBoost] ⚠️ Erreur lors de l\'envoi de la notification:', notifError.message);
+      }
+    }
+
+    res.json({ 
+      message: 'Boost approuvé avec succès et appliqué au projet',
+      boost
+    });
+  } catch (error: any) {
+    console.error('[approveBoost] Erreur:', error);
+    res.status(500).json({ 
+      message: 'Erreur lors de l\'approbation du boost',
+      error: error.message 
+    });
+  }
+};
+
+/**
+ * Rejeter un boost (admin uniquement)
+ */
+export const rejectBoost = async (req: Request, res: Response) => {
+  try {
+    const { boostId, reason } = req.body;
+
+    if (!boostId) {
+      return res.status(400).json({ message: 'Boost ID requis' });
+    }
+
+    console.log('[rejectBoost] Rejet du boost:', boostId, 'avec raison:', reason);
+
+    // Trouver le boost
+    const boost = await Payment.findById(boostId)
+      .populate('boostDetails.projectId')
+      .populate('promoteur');
+
+    if (!boost) {
+      return res.status(404).json({ message: 'Boost non trouvé' });
+    }
+
+    if (boost.type !== 'boost' || boost.status !== 'succeeded') {
+      return res.status(400).json({ message: 'Seuls les boosts payés peuvent être rejetés' });
+    }
+
+    // Mettre à jour le boost
+    boost.approvalStatus = 'rejected';
+    boost.metadata = {
+      ...(boost.metadata || {}),
+      rejectionReason: reason || 'Non spécifiée'
+    };
+    await boost.save();
+
+    console.log('[rejectBoost] ✅ Boost rejeté');
+
+    // Notifier le promoteur
+    const project = boost.boostDetails?.projectId as any;
+    const promoteur = boost.promoteur as any;
+
     if (promoteur?.user) {
       await NotificationService.create({
         recipient: promoteur.user.toString(),
         type: 'warning',
-        title: 'Paiement en echec',
-        message: 'Votre paiement a echoue. Merci de verifier votre moyen de paiement.',
-        priority: 'urgent',
+        title: 'Boost rejeté',
+        message: `Votre boost pour le projet "${project?.title || 'votre projet'}" a été rejeté. Raison: ${reason || 'Non spécifiée'}`,
+        priority: 'high',
         channels: { inApp: true, email: true },
       });
     }
+
+    res.json({ 
+      message: 'Boost rejeté',
+      boost
+    });
+  } catch (error: any) {
+    console.error('[rejectBoost] Erreur:', error);
+    res.status(500).json({ 
+      message: 'Erreur lors du rejet du boost',
+      error: error.message 
+    });
   }
-}
+};
+
+
+
 

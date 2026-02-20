@@ -11,25 +11,46 @@ export class TeamManagementController {
    */
   async getTeamMembers(req: Request, res: Response) {
     try {
-      const { user } = req as any;
-      const promoteur = await Promoteur.findOne({ user: user._id }).populate('teamMembers.userId');
+      const reqUser = (req as any).user || {};
+      const userId = reqUser.id;
+      console.log(`[getTeamMembers] Fetching for userId: ${userId}, promoteurProfile: ${reqUser.promoteurProfile}`);
+      
+      const promoteurByUser = userId ? await Promoteur.findOne({ user: userId }).populate('teamMembers.userId') : null;
+      const promoteur = promoteurByUser || (reqUser.promoteurProfile ? await Promoteur.findById(reqUser.promoteurProfile).populate('teamMembers.userId') : null);
       
       if (!promoteur) {
         return res.status(404).json({ message: 'Promoteur not found' });
       }
 
+      console.log(`[getTeamMembers] Found promoteur, teamMembers count: ${promoteur.teamMembers?.length}`);
+
       // Get team roles
       const teamRoles = await TeamRole.find({ promoteur: promoteur._id });
       
       // Enrich team members with roles
-      const teamWithRoles = await Promise.all(promoteur.teamMembers.map(async (member: any) => {
-        const memberUser = await User.findById(member.userId).select('email firstName lastName');
+      const teamWithRoles = await Promise.all(promoteur.teamMembers.map(async (member: any, idx: number) => {
+        let memberUser = member.userId;
+        
+        // If not populated or missing data, fetch from DB
+        if (!memberUser || !memberUser.email) {
+          memberUser = await User.findById(member.userId).lean();
+          console.log(`[getTeamMembers] Had to fetch User ${idx}: Email=${memberUser?.email}, FirstName=${memberUser?.firstName}, LastName=${memberUser?.lastName}`);
+        } else {
+          console.log(`[getTeamMembers] Already populated Member ${idx}: Email=${memberUser?.email}, FirstName=${memberUser?.firstName}, LastName=${memberUser?.lastName}`);
+        }
+        
         const roleData = teamRoles.find(r => r.name === member.role);
+        
+        // Use email as fallback if first/last names are missing
+        let displayName = `${memberUser?.firstName || ''} ${memberUser?.lastName || ''}`.trim();
+        if (!displayName) {
+          displayName = memberUser?.email?.split('@')[0] || 'Unknown';
+        }
         
         return {
           userId: member.userId,
           email: memberUser?.email,
-          name: `${memberUser?.firstName} ${memberUser?.lastName}`,
+          name: displayName,
           role: member.role,
           permissions: roleData?.permissions || {},
           addedAt: member.addedAt,
@@ -48,10 +69,11 @@ export class TeamManagementController {
    */
   async createTeamRole(req: Request, res: Response) {
     try {
-      const { user } = req as any;
+      const reqUser = (req as any).user || {};
+      const userId = reqUser.id;
       const { name, description, permissions } = req.body;
 
-      const promoteur = await Promoteur.findOne({ user: user._id });
+      const promoteur = await Promoteur.findOne({ user: userId });
       if (!promoteur) {
         return res.status(404).json({ message: 'Promoteur not found' });
       }
@@ -75,7 +97,7 @@ export class TeamManagementController {
       // Log activity
       await TeamActivity.create({
         promoteur: promoteur._id,
-        actor: user._id,
+        actor: userId,
         action: 'created',
         category: 'permission',
         targetType: 'role',
@@ -95,10 +117,11 @@ export class TeamManagementController {
    */
   async assignLead(req: Request, res: Response) {
     try {
-      const { user } = req as any;
+      const reqUser = (req as any).user || {};
+      const userId = reqUser.id;
       const { leadId, assignToUserId } = req.body;
 
-      const promoteur = await Promoteur.findOne({ user: user._id });
+      const promoteur = await Promoteur.findOne({ user: userId });
       if (!promoteur) {
         return res.status(404).json({ message: 'Promoteur not found' });
       }
@@ -117,7 +140,7 @@ export class TeamManagementController {
         name: teamMember.role 
       });
       const currentUserRole = promoteur.teamMembers.find(
-        (m: any) => m.userId.toString() === user._id.toString()
+        (m: any) => m.userId.toString() === userId
       );
       const currentRoleData = await TeamRole.findOne({ 
         promoteur: promoteur._id, 
@@ -140,7 +163,7 @@ export class TeamManagementController {
       // Log activity
       await TeamActivity.create({
         promoteur: promoteur._id,
-        actor: user._id,
+        actor: userId,
         action: 'assigned',
         category: 'assignment',
         targetType: 'lead',
@@ -149,7 +172,7 @@ export class TeamManagementController {
         leadAssignment: {
           leadId,
           assignedTo: assignToUserId,
-          assignedBy: user._id,
+          assignedBy: userId,
         },
         details: {
           before: { assignedTo: oldAssignment },
@@ -169,25 +192,29 @@ export class TeamManagementController {
    */
   async getTeamActivityLog(req: Request, res: Response) {
     try {
-      const { user } = req as any;
+      const reqUser = (req as any).user || {};
+      const userId = reqUser.id;
       const { limit = 50, skip = 0, category, action } = req.query;
 
-      const promoteur = await Promoteur.findOne({ user: user._id });
+      const promoteur = await Promoteur.findOne({ user: userId });
       if (!promoteur) {
         return res.status(404).json({ message: 'Promoteur not found' });
       }
 
       // Check permission to view audit logs
-      const userRole = promoteur.teamMembers.find(
-        (m: any) => m.userId.toString() === user._id.toString()
-      );
-      const roleData = await TeamRole.findOne({ 
-        promoteur: promoteur._id, 
-        name: userRole?.role 
-      });
+      // If user is the promoteur owner, allow access
+      if (promoteur.user.toString() !== userId) {
+        const userRole = promoteur.teamMembers.find(
+          (m: any) => m.userId.toString() === userId
+        );
+        const roleData = await TeamRole.findOne({ 
+          promoteur: promoteur._id, 
+          name: userRole?.role 
+        });
 
-      if (!roleData?.permissions.viewAuditLogs && userRole?.role !== 'admin') {
-        return res.status(403).json({ message: 'You do not have permission to view audit logs' });
+        if (!roleData?.permissions.viewAuditLogs && userRole?.role !== 'admin') {
+          return res.status(403).json({ message: 'You do not have permission to view audit logs' });
+        }
       }
 
       // Build query
@@ -215,10 +242,11 @@ export class TeamManagementController {
    */
   async getTeamMemberAssignments(req: Request, res: Response) {
     try {
-      const { user } = req as any;
+      const reqUser = (req as any).user || {};
+      const userIdReq = reqUser.id;
       const { userId } = req.params;
 
-      const promoteur = await Promoteur.findOne({ user: user._id });
+      const promoteur = await Promoteur.findOne({ user: userIdReq });
       if (!promoteur) {
         return res.status(404).json({ message: 'Promoteur not found' });
       }
@@ -248,26 +276,30 @@ export class TeamManagementController {
    */
   async getMemberModificationHistory(req: Request, res: Response) {
     try {
-      const { user } = req as any;
+      const reqUser = (req as any).user || {};
+      const userIdReq = reqUser.id;
       const { userId } = req.params;
       const { limit = 30, skip = 0 } = req.query;
 
-      const promoteur = await Promoteur.findOne({ user: user._id });
+      const promoteur = await Promoteur.findOne({ user: userIdReq });
       if (!promoteur) {
         return res.status(404).json({ message: 'Promoteur not found' });
       }
 
       // Check if user can view this history
-      const userRole = promoteur.teamMembers.find(
-        (m: any) => m.userId.toString() === user._id.toString()
-      );
-      const roleData = await TeamRole.findOne({ 
-        promoteur: promoteur._id, 
-        name: userRole?.role 
-      });
+      // If user is the promoteur owner or requesting their own history, allow access
+      if (userId !== userIdReq && promoteur.user.toString() !== userIdReq) {
+        const userRole = promoteur.teamMembers.find(
+          (m: any) => m.userId.toString() === userIdReq
+        );
+        const roleData = await TeamRole.findOne({ 
+          promoteur: promoteur._id, 
+          name: userRole?.role 
+        });
 
-      if (userId !== user._id.toString() && !roleData?.permissions.viewAuditLogs && userRole?.role !== 'admin') {
-        return res.status(403).json({ message: 'You do not have permission to view this history' });
+        if (!roleData?.permissions.viewAuditLogs && userRole?.role !== 'admin') {
+          return res.status(403).json({ message: 'You do not have permission to view this history' });
+        }
       }
 
       const history = await TeamActivity.find({
@@ -304,17 +336,18 @@ export class TeamManagementController {
    */
   async updateTeamMemberRole(req: Request, res: Response) {
     try {
-      const { user } = req as any;
+      const reqUser = (req as any).user || {};
+      const userId = reqUser.id;
       const { memberId, newRole } = req.body;
 
-      const promoteur = await Promoteur.findOne({ user: user._id });
+      const promoteur = await Promoteur.findOne({ user: userId });
       if (!promoteur) {
         return res.status(404).json({ message: 'Promoteur not found' });
       }
 
       // Check permission
       const currentUserRole = promoteur.teamMembers.find(
-        (m: any) => m.userId.toString() === user._id.toString()
+        (m: any) => m.userId.toString() === userId
       );
       const currentRoleData = await TeamRole.findOne({ 
         promoteur: promoteur._id, 
@@ -342,7 +375,7 @@ export class TeamManagementController {
       const memberUser = await User.findById(memberId).select('email firstName lastName');
       await TeamActivity.create({
         promoteur: promoteur._id,
-        actor: user._id,
+        actor: userId,
         action: 'updated',
         category: 'team',
         targetType: 'team_member',

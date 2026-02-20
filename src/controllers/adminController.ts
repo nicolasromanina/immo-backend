@@ -9,6 +9,9 @@ import Report from '../models/Report';
 import Badge from '../models/Badge';
 import Document from '../models/Document';
 import Alert from '../models/Alert';
+import Sanction from '../models/Sanction';
+import Case from '../models/Case';
+import axios from 'axios';
 import { AuditLogService } from '../services/AuditLogService';
 import { TrustScoreService } from '../services/TrustScoreService';
 import { AdvancedTrustScoreService } from '../services/AdvancedTrustScoreService';
@@ -55,6 +58,27 @@ export class AdminController {
     } catch (error) {
       console.error('Error getting dashboard stats:', error);
       res.status(500).json({ message: 'Server error' });
+    }
+  }
+
+  /**
+   * Backfill trust score snapshots for all promoteurs (admin only)
+   */
+  static async backfillTrustScoreSnapshots(req: AuthRequest, res: Response) {
+    try {
+      const promoteurs = await Promoteur.find({});
+      let created = 0;
+      for (const p of promoteurs) {
+        try {
+          const result = await AdvancedTrustScoreService.calculateScore(p._id.toString());
+          if (result && typeof result.totalScore === 'number') created++;
+        } catch (e) {
+          console.error('Error recalculating for', p._id, e);
+        }
+      }
+      res.json({ success: true, snapshotsCreated: created });
+    } catch (error:any) {
+      res.status(500).json({ success: false, error: error.message });
     }
   }
 
@@ -380,6 +404,278 @@ export class AdminController {
     } catch (error) {
       console.error('Error getting admin alerts:', error);
       res.status(500).json({ message: 'Server error' });
+    }
+  }
+
+  /**
+   * SLA dashboard metrics (admin)
+   */
+  static async getSlaDashboard(req: AuthRequest, res: Response) {
+    try {
+      // Accept optional date range and granularity
+      const { start, end, granularity = 'day', promoteurId } = req.query as any;
+      const match: any = {};
+      if (start) match.reportedAt = { $gte: new Date(start) };
+      if (end) match.reportedAt = match.reportedAt || {};
+      if (end) match.reportedAt.$lte = new Date(end);
+      if (promoteurId) match.promoteur = new mongoose.Types.ObjectId(promoteurId);
+
+      const totalCases = await Case.countDocuments(match);
+      const slaBreached = await Case.countDocuments({ ...match, slaBreached: true });
+
+      // Average first response time (minutes)
+      const avgPipeline = await Case.aggregate([
+        { $match: { ...match, firstResponseAt: { $exists: true }, reportedAt: { $exists: true } } },
+        { $project: { diffMs: { $subtract: [ '$firstResponseAt', '$reportedAt' ] } } },
+        { $group: { _id: null, avgMs: { $avg: '$diffMs' } } },
+      ]);
+      const avgMs = (avgPipeline && avgPipeline[0] && avgPipeline[0].avgMs) || 0;
+      const avgFirstResponseMinutes = Math.round((avgMs || 0) / (1000 * 60));
+
+      // Time series aggregation (by day or week)
+      const groupFormat: any = { day: { $dateToString: { format: '%Y-%m-%d', date: '$reportedAt' } } };
+      if (granularity === 'week') {
+        groupFormat.week = { $dateToString: { format: '%Y-%U', date: '$reportedAt' } };
+      }
+
+      const timeSeries = await Case.aggregate([
+        { $match: { ...match } },
+        { $group: { _id: groupFormat, total: { $sum: 1 }, breached: { $sum: { $cond: ['$slaBreached', 1, 0] } } } },
+        { $sort: { '_id.day': 1 } },
+      ]);
+
+      // Per-promoteur breakdown (top offenders)
+      const perPromoteur = await Case.aggregate([
+        { $match: { ...match } },
+        { $group: { _id: '$promoteur', total: { $sum: 1 }, breached: { $sum: { $cond: ['$slaBreached', 1, 0] } } } },
+        { $sort: { breached: -1, total: -1 } },
+        { $limit: 20 },
+        { $lookup: { from: 'promoteurs', localField: '_id', foreignField: '_id', as: 'promoteur' } },
+        { $unwind: { path: '$promoteur', preserveNullAndEmptyArrays: true } },
+        { $project: { promoteur: { _id: '$promoteur._id', organizationName: '$promoteur.organizationName' }, total: 1, breached: 1 } }
+      ]);
+
+      res.json({ success: true, data: { totalCases, slaBreached, percentBreached: totalCases ? Math.round((slaBreached / totalCases) * 100) : 0, avgFirstResponseMinutes, timeSeries, perPromoteur } });
+    } catch (error:any) {
+      console.error('Error building SLA dashboard:', error);
+      res.status(500).json({ success: false, error: error.message });
+    }
+  }
+
+  /**
+   * SLA statistics breakdown
+   */
+  static async getSlaStats(req: AuthRequest, res: Response) {
+    try {
+      const { start, end } = req.query as any;
+      const match: any = {};
+      if (start) match.reportedAt = { $gte: new Date(start) };
+      if (end) match.reportedAt = match.reportedAt || {};
+      if (end) match.reportedAt.$lte = new Date(end);
+
+      // buckets based on minutes to first response
+      const buckets = await Case.aggregate([
+        { $match: { ...match, firstResponseAt: { $exists: true }, reportedAt: { $exists: true } } },
+        { $project: { minutesToFirst: { $divide: [ { $subtract: ['$firstResponseAt', '$reportedAt'] }, 1000 * 60 ] } } },
+        { $bucket: { groupBy: '$minutesToFirst', boundaries: [0, 30, 60, 180, Number.MAX_SAFE_INTEGER], default: 'other', output: { count: { $sum: 1 } } } },
+      ]);
+
+      const stats: any = { excellent: 0, good: 0, acceptable: 0, breach: 0 };
+      for (const b of buckets) {
+        if (b._id === 0) stats.excellent = b.count;
+        else if (b._id === 30) stats.good = b.count;
+        else if (b._id === 60) stats.acceptable = b.count;
+        else stats.breach += b.count;
+      }
+
+      // Add explicit breached flag counts in range
+      const explicitBreached = await Case.countDocuments({ ...match, slaBreached: true });
+      stats.breach = Math.max(stats.breach, explicitBreached);
+
+      res.json({ success: true, data: stats });
+    } catch (error:any) {
+      console.error('Error building SLA stats:', error);
+      res.status(500).json({ success: false, error: error.message });
+    }
+  }
+
+  /**
+   * Sanctions listing (admin) - currently returns empty results until sanctions model implemented
+   */
+  static async getSanctions(req: AuthRequest, res: Response) {
+    try {
+      const { status, promoteurId, page = 1, limit = 20, type } = req.query as any;
+      const query: any = {};
+      if (promoteurId) query.promoteur = promoteurId;
+      if (type) query.type = type;
+      if (status === 'active') query.revoked = false;
+      if (status === 'revoked') query.revoked = true;
+
+      const skip = (Number(page) - 1) * Number(limit);
+      const sanctions = await Sanction.find(query).sort({ createdAt: -1 }).limit(Number(limit)).skip(skip).populate('promoteur', 'organizationName');
+      const total = await Sanction.countDocuments(query);
+
+      res.json({ sanctions, pagination: { total, page: Number(page), pages: Math.ceil(total / Number(limit)), limit: Number(limit) } });
+    } catch (error:any) {
+      console.error('Error getting sanctions:', error);
+      res.status(500).json({ success: false, error: error.message });
+    }
+  }
+
+  /**
+   * Sanctions stats overview (admin) - placeholder zeros
+   */
+  static async getSanctionsStats(req: AuthRequest, res: Response) {
+    try {
+      const totalActive = await Sanction.countDocuments({ revoked: false });
+      const warnings = await Sanction.countDocuments({ type: 'warning', revoked: false });
+      const suspensions = await Sanction.countDocuments({ type: { $in: ['temporary-suspension', 'permanent-suspension'] }, revoked: false });
+      const revoked = await Sanction.countDocuments({ revoked: true });
+
+      res.json({ success: true, data: { active: totalActive, warnings, suspensions, revoked } });
+    } catch (error:any) {
+      console.error('Error getting sanctions stats:', error);
+      res.status(500).json({ success: false, error: error.message });
+    }
+  }
+
+  /**
+   * Get sanction by id
+   */
+  static async getSanctionById(req: AuthRequest, res: Response) {
+    try {
+      const { id } = req.params;
+      const sanction = await Sanction.findById(id).populate('promoteur', 'organizationName');
+      if (!sanction) return res.status(404).json({ success: false, error: 'Sanction not found' });
+      res.json({ success: true, data: sanction });
+    } catch (error:any) {
+      console.error('Error getting sanction by id:', error);
+      res.status(500).json({ success: false, error: error.message });
+    }
+  }
+
+  /**
+   * Apply a manual sanction (admin)
+   */
+  static async applyManualSanction(req: AuthRequest, res: Response) {
+    try {
+      const { promoteurId, type, reason, durationDays, targetType, targetId } = req.body;
+      const imposedBy = req.user!.id as any;
+
+      const startDate = new Date();
+      const endDate = durationDays ? new Date(Date.now() + Number(durationDays) * 24 * 60 * 60 * 1000) : undefined;
+
+      const sanction = new Sanction({
+        promoteur: promoteurId,
+        targetType: targetType || 'promoteur',
+        targetId: targetId || promoteurId,
+        type,
+        reason,
+        manual: true,
+        imposedBy,
+        startDate,
+        endDate,
+      });
+
+      await sanction.save();
+
+      // Notify promoteur if available
+      try {
+        const promoted = await Promoteur.findById(promoteurId).populate('user', '_id email');
+        if (promoted && promoted.user) {
+          await NotificationService.create({
+            recipient: (promoted.user as any)._id.toString(),
+            type: 'warning',
+            title: 'Sanction appliquée',
+            message: `Une sanction de type ${sanction.type} a été appliquée: ${sanction.reason}`,
+            priority: 'high',
+            channels: { inApp: true, email: true },
+          });
+        }
+      } catch (nerr) {
+        console.warn('Failed to send sanction notification', nerr);
+      }
+
+      // Webhook: notify external system if configured
+      try {
+        const webhook = process.env.SANCTIONS_WEBHOOK_URL;
+        if (webhook) {
+          await axios.post(webhook, { event: 'sanction_applied', sanction: sanction.toObject() }, { timeout: 5000 });
+        }
+      } catch (wherr) {
+        console.warn('Sanctions webhook failed', (wherr as any)?.message || wherr);
+      }
+
+      await AuditLogService.logFromRequest(req, 'apply_sanction', 'moderation', `Applied sanction ${sanction._id}`, 'Sanction', sanction._id.toString());
+
+      res.status(201).json({ success: true, data: sanction });
+    } catch (error:any) {
+      console.error('Error applying manual sanction:', error);
+      res.status(500).json({ success: false, error: error.message });
+    }
+  }
+
+  /**
+   * Revoke a sanction
+   */
+  static async revokeSanction(req: AuthRequest, res: Response) {
+    try {
+      const { id } = req.params;
+      const userId = req.user!.id as any;
+
+      const sanction = await Sanction.findById(id);
+      if (!sanction) return res.status(404).json({ success: false, error: 'Sanction not found' });
+
+      sanction.revoked = true;
+      sanction.revokedAt = new Date();
+      sanction.revokedBy = userId;
+      await sanction.save();
+
+      await AuditLogService.logFromRequest(req, 'revoke_sanction', 'moderation', `Revoked sanction ${id}`, 'Sanction', id);
+
+      // Notify promoteur
+      try {
+        const promoted = await Promoteur.findById(sanction.promoteur).populate('user', '_id email');
+        if (promoted && promoted.user) {
+          await NotificationService.create({
+            recipient: (promoted.user as any)._id.toString(),
+            type: 'system',
+            title: 'Sanction révoquée',
+            message: `La sanction appliquée précédemment a été révoquée.`,
+            priority: 'medium',
+            channels: { inApp: true, email: true },
+          });
+        }
+      } catch (nerr) {
+        console.warn('Failed to send sanction revoke notification', nerr);
+      }
+
+      // Webhook notify
+      try {
+        const webhook = process.env.SANCTIONS_WEBHOOK_URL;
+        if (webhook) await axios.post(webhook, { event: 'sanction_revoked', sanction: sanction.toObject() }, { timeout: 5000 });
+      } catch (wherr) {
+        console.warn('Sanctions webhook failed', (wherr as any)?.message || wherr);
+      }
+
+      res.json({ success: true, data: sanction });
+    } catch (error:any) {
+      console.error('Error revoking sanction:', error);
+      res.status(500).json({ success: false, error: error.message });
+    }
+  }
+
+  /**
+   * Get sanctions for a promoteur
+   */
+  static async getPromoteurSanctions(req: AuthRequest, res: Response) {
+    try {
+      const { promoteurId } = req.params;
+      const sanctions = await Sanction.find({ promoteur: promoteurId }).sort({ createdAt: -1 });
+      res.json({ success: true, data: sanctions });
+    } catch (error:any) {
+      console.error('Error getting promoteur sanctions:', error);
+      res.status(500).json({ success: false, error: error.message });
     }
   }
 

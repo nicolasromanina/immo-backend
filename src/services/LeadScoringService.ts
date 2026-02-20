@@ -1,5 +1,7 @@
 import Lead from '../models/Lead';
 import Project from '../models/Project';
+import Promoteur from '../models/Promoteur';
+import { RealChatService } from './RealChatService';
 
 export class LeadScoringService {
   /**
@@ -160,6 +162,35 @@ export class LeadScoringService {
     });
 
     await lead.save();
+
+    // Create conversation between client and promoteur (use promoteur's user id)
+    if (params.clientId) {
+        const promoteurDoc = await Promoteur.findById(params.promoteurId).populate('user');
+        const promoteurUserId = (promoteurDoc?.user as any)?._id?.toString();
+
+        const participants = [
+          { user: params.clientId, role: 'client' },
+          { user: promoteurUserId || params.promoteurId, role: 'promoteur' },
+        ];
+
+        const conversation = await RealChatService.createConversation(participants);
+
+        // Log for debugging: created conversation and resolved promoteur user id
+        console.info('[LeadScoring] Created conversation', {
+          conversationId: conversation._id?.toString(),
+          promoteurId: params.promoteurId,
+          promoteurUserId,
+          clientId: params.clientId,
+        });
+
+        // Add initial message from client
+        await RealChatService.addMessage(
+          conversation._id.toString(),
+          params.clientId,
+          params.initialMessage,
+          'text'
+        );
+    }
 
     // Update project stats
     await Project.findByIdAndUpdate(params.projectId, {

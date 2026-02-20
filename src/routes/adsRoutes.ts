@@ -9,6 +9,7 @@ const router = Router();
 router.post('/:id/impression', adsController.trackImpression);
 router.post('/:id/click', adsController.trackClick);
 router.get('/active', adsController.getActiveAds);
+router.get('/:id/stats/7days', adsController.get7DayStats);
 
 // Promoteur routes
 router.post('/', authenticateJWT, adsController.createAd);
@@ -21,5 +22,7 @@ router.put('/:id/resume', authenticateJWT, adsController.resumeAd);
 router.get('/', authenticateJWT, authorizeRoles(Role.ADMIN, Role.MANAGER), adsController.getAllAds);
 router.put('/:id/approve', authenticateJWT, authorizeRoles(Role.ADMIN, Role.MANAGER), adsController.approveAd);
 router.put('/:id/reject', authenticateJWT, authorizeRoles(Role.ADMIN, Role.MANAGER), adsController.rejectAd);
+router.put('/:id/pause-admin', authenticateJWT, authorizeRoles(Role.ADMIN, Role.MANAGER), adsController.pauseAdAdmin);
+router.put('/:id/resume-admin', authenticateJWT, authorizeRoles(Role.ADMIN, Role.MANAGER), adsController.resumeAdAdmin);
 
 export default router;

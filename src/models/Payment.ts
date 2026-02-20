@@ -6,6 +6,7 @@ export interface IPayment extends Document {
   currency: string;
   type: 'subscription' | 'boost' | 'onboarding' | 'addon' | 'upgrade';
   status: 'pending' | 'succeeded' | 'failed' | 'canceled' | 'refunded';
+  approvalStatus?: 'pending' | 'approved' | 'rejected'; // Pour les boosts uniquement
   
   // Stripe IDs
   stripePaymentIntentId?: string;
@@ -15,7 +16,7 @@ export interface IPayment extends Document {
   subscription?: mongoose.Types.ObjectId;
   boostDetails?: {
     projectId?: mongoose.Types.ObjectId;
-    boostType: 'basic' | 'premium' | 'enterprise';
+    boostType: 'basic' | 'premium' | 'enterprise' | 'custom';
     duration: number; // Durée en jours
     startDate: Date;
     endDate: Date;
@@ -50,6 +51,11 @@ const PaymentSchema: Schema = new Schema({
     enum: ['pending', 'succeeded', 'failed', 'canceled', 'refunded'],
     default: 'pending'
   },
+  approvalStatus: {
+    type: String,
+    enum: ['pending', 'approved', 'rejected'],
+    default: 'pending' // Par défaut, les nouveaux boosts sont en attente d'approbation
+  },
   
   stripePaymentIntentId: { type: String, unique: true, sparse: true },
   stripeChargeId: { type: String },
@@ -59,7 +65,7 @@ const PaymentSchema: Schema = new Schema({
     projectId: { type: Schema.Types.ObjectId, ref: 'Project' },
     boostType: { 
       type: String, 
-      enum: ['basic', 'premium', 'enterprise']
+      enum: ['basic', 'premium', 'enterprise', 'custom']
     },
     duration: { type: Number },
     startDate: { type: Date },
@@ -78,6 +84,7 @@ const PaymentSchema: Schema = new Schema({
 
 // Index pour recherche rapide
 PaymentSchema.index({ promoteur: 1, status: 1 });
+PaymentSchema.index({ type: 1, approvalStatus: 1 }); // Pour los boosts en attente d'approbation
 PaymentSchema.index({ type: 1, status: 1 });
 PaymentSchema.index({ stripePaymentIntentId: 1 });
 PaymentSchema.index({ createdAt: -1 });

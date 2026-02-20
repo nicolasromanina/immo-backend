@@ -156,6 +156,30 @@ export class ReportingController {
   }
 
   /**
+   * Get my promoteur performance report
+   */
+  static async getMyPromoteurReport(req: Request, res: Response) {
+    try {
+      const promoteurId = (req as any).user?.promoteurProfile;
+
+      if (!promoteurId) {
+        return res.status(403).json({ success: false, error: 'Not a promoteur' });
+      }
+
+      const { startDate, endDate } = req.query;
+
+      const start = startDate ? new Date(startDate as string) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+      const end = endDate ? new Date(endDate as string) : new Date();
+
+      const report = await ReportingService.generatePromoteurReport(promoteurId.toString(), start, end);
+
+      res.json({ success: true, data: report });
+    } catch (error: any) {
+      res.status(400).json({ success: false, error: error.message });
+    }
+  }
+
+  /**
    * Get my sanction history (promoteur)
    */
   static async getMySanctionHistory(req: Request, res: Response) {

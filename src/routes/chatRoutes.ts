@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { ChatService } from '../services/ChatService';
+import { ChatController } from '../controllers/chatController';
 import { authenticateJWT, authorizeRoles, AuthRequest } from '../middlewares/auth';
 import { ChatRequest } from '../assistants/types/chat.types';
 import { Role } from '../config/roles';
@@ -245,5 +246,12 @@ router.post('/chat/support',
     }
   }
 );
+
+// Real-time chat REST endpoints (conversations/messages)
+router.post('/rt/conversations', authenticateJWT, ChatController.createConversation);
+router.get('/rt/conversations', authenticateJWT, ChatController.getConversations);
+router.get('/rt/conversations/:id/messages', authenticateJWT, ChatController.getMessages);
+router.post('/rt/conversations/:id/messages', authenticateJWT, ChatController.postMessage);
+router.patch('/rt/conversations/:id/read', authenticateJWT, ChatController.markRead);
 
 export default router;

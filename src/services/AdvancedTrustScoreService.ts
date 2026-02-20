@@ -6,6 +6,7 @@ import Document from '../models/Document';
 import Lead from '../models/Lead';
 import { AuditLogService } from './AuditLogService';
 import { NotificationService } from './NotificationService';
+import TrustScoreSnapshot from '../models/TrustScoreSnapshot';
 
 export class AdvancedTrustScoreService {
   private static defaultConfig = {
@@ -121,6 +122,13 @@ export class AdvancedTrustScoreService {
 
     // Update promoteur trust score
     await Promoteur.findByIdAndUpdate(promoteurId, { trustScore: totalScore });
+
+    // Persist snapshot
+    try {
+      await TrustScoreSnapshot.create({ promoteur: promoteurId, score: totalScore, createdAt: new Date() });
+    } catch (e) {
+      console.error('Error saving trust score snapshot:', e);
+    }
 
     return {
       totalScore,
@@ -438,12 +446,22 @@ export class AdvancedTrustScoreService {
    * Get score history (would need a ScoreHistory model in production)
    */
   static async getScoreHistory(promoteurId: string, days: number = 30) {
-    // In production, you'd store score snapshots
-    // For now, return current score
-    const promoteur = await Promoteur.findById(promoteurId).select('trustScore');
-    return [{
-      date: new Date(),
-      score: promoteur?.trustScore || 0,
-    }];
+    const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+    try {
+      const snaps = await TrustScoreSnapshot.find({ promoteur: promoteurId, createdAt: { $gte: since } })
+        .sort({ createdAt: 1 })
+        .lean();
+
+      if (!snaps || snaps.length === 0) {
+        const promoteur = await Promoteur.findById(promoteurId).select('trustScore');
+        return [{ date: new Date(), score: promoteur?.trustScore || 0 }];
+      }
+
+      return snaps.map(s => ({ date: s.createdAt, score: s.score }));
+    } catch (e) {
+      console.error('Error fetching score history:', e);
+      const promoteur = await Promoteur.findById(promoteurId).select('trustScore');
+      return [{ date: new Date(), score: promoteur?.trustScore || 0 }];
+    }
   }
 }

@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { ComparisonService } from '../services/ComparisonService';
+import Comparison from '../models/Comparison';
 
 export class ComparisonController {
   /**
@@ -9,6 +10,18 @@ export class ComparisonController {
     try {
       const userId = (req as any).user.id;
       const { projectIds, notes } = req.body;
+
+      // Debug incoming payload for diagnostics
+      try {
+        console.debug('[ComparisonController.create] user:', userId);
+        console.debug('[ComparisonController.create] body.projectIds:', projectIds);
+        if (Array.isArray(projectIds)) {
+          console.debug('[ComparisonController.create] projectIds types:', projectIds.map((p: any) => typeof p));
+          console.debug('[ComparisonController.create] projectIds length:', projectIds.length);
+        }
+      } catch (e) {
+        console.debug('[ComparisonController.create] failed to log payload', e);
+      }
 
       const comparison = await ComparisonService.createComparison({
         userId,
@@ -106,6 +119,88 @@ export class ComparisonController {
         success: false,
         error: error.message,
       });
+    }
+  }
+
+  /**
+   * Admin: get all comparisons (for moderation / admin dashboard)
+   */
+  static async getAll(req: Request, res: Response) {
+    try {
+      console.debug('[ComparisonController.getAll] query:', req.query);
+      const {
+        page = 1,
+        limit = 20,
+        projectId,
+        userId,
+        dateFrom,
+        dateTo,
+        promoteurId,
+        sortBy = 'createdAt',
+        sortDir = 'desc',
+      } = req.query as any;
+
+      const pageNum = Number(page) || 1;
+      const limitNum = Number(limit) || 20;
+      const skip = (pageNum - 1) * limitNum;
+
+      // Build base filters
+      const filters: any = {};
+      if (projectId) filters.projects = projectId;
+      if (userId) filters.user = userId;
+      if (dateFrom || dateTo) filters.createdAt = {};
+      if (dateFrom) filters.createdAt.$gte = new Date(dateFrom);
+      if (dateTo) filters.createdAt.$lte = new Date(dateTo);
+
+      const sort: any = {};
+      sort[sortBy] = sortDir === 'asc' ? 1 : -1;
+
+      // If promoteurId filter is present, do an in-memory filter after populating projects.
+      if (promoteurId) {
+        const all = await Comparison.find(filters)
+          .populate({ path: 'projects', select: 'title priceFrom trustScore media.coverImage promoteur' })
+          .populate('user', 'firstName lastName email')
+          .sort(sort)
+          .exec();
+
+        console.debug('[ComparisonController.getAll] fetched', all.length, 'comparisons for promoteur filter; sample projects types:',
+          all[0] ? (all[0].projects && all[0].projects.length > 0 ? typeof all[0].projects[0] : 'no-projects') : 'no-comparisons');
+
+        const filtered = all.filter((c: any) => {
+          return (c.projects || []).some((p: any) => p.promoteur && p.promoteur.toString() === promoteurId);
+        });
+
+        const total = filtered.length;
+        const pages = Math.ceil(total / limitNum) || 1;
+        const pageItems = filtered.slice(skip, skip + limitNum);
+
+        return res.json({
+          success: true,
+          data: pageItems,
+          pagination: { total, page: pageNum, pages, limit: limitNum },
+        });
+      }
+
+      const comparisons = await Comparison.find(filters)
+        .populate({ path: 'projects', select: 'title priceFrom trustScore media.coverImage' })
+        .populate('user', 'firstName lastName email')
+        .sort(sort)
+        .limit(limitNum)
+        .skip(skip)
+        .exec();
+
+      const total = await Comparison.countDocuments(filters);
+
+      console.debug('[ComparisonController.getAll] returning', comparisons.length, 'comparisons (total:', total, ') — sample project[0]:',
+        comparisons[0] && comparisons[0].projects && comparisons[0].projects[0] ? (comparisons[0].projects[0] as any).title || 'object-without-title' : 'no-project');
+
+      res.json({
+        success: true,
+        data: comparisons,
+        pagination: { total, page: pageNum, pages: Math.ceil(total / limitNum) || 1, limit: limitNum },
+      });
+    } catch (error: any) {
+      res.status(400).json({ success: false, error: error.message });
     }
   }
 

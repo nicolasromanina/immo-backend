@@ -17,6 +17,15 @@ export class ComparisonService {
     projectIds: string[];
     notes?: string;
   }) {
+    // Debug incoming params to help diagnose validation issues
+    try {
+      console.debug('[ComparisonService.createComparison] incoming projectIds:', params.projectIds);
+      console.debug('[ComparisonService.createComparison] types:', params.projectIds.map((p) => typeof p));
+      console.debug('[ComparisonService.createComparison] count:', params.projectIds.length);
+    } catch (e) {
+      console.debug('[ComparisonService.createComparison] failed to log params', e);
+    }
+
     if (params.projectIds.length < 2 || params.projectIds.length > 3) {
       throw new Error('Must compare 2 or 3 projects');
     }
@@ -28,6 +37,8 @@ export class ComparisonService {
     });
 
     if (projects.length !== params.projectIds.length) {
+      console.debug('[ComparisonService.createComparison] fetched projects count:', projects.length, 'expected:', params.projectIds.length);
+      console.debug('[ComparisonService.createComparison] fetched project ids:', projects.map((p) => p._id?.toString()));
       throw new Error('Some projects not found or not published');
     }
 

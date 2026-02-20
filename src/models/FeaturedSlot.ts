@@ -6,7 +6,7 @@ export interface IFeaturedSlot extends Document {
   entity: mongoose.Types.ObjectId;
   
   // Placement
-  placement: 'homepage' | 'search' | 'newsletter' | 'category' | 'city';
+  placement: 'annuaires' | 'search' | 'newsletter' | 'category' | 'city';
   position: number;
   
   // Visibility
@@ -59,7 +59,7 @@ const FeaturedSlotSchema: Schema = new Schema({
   
   placement: { 
     type: String, 
-    enum: ['homepage', 'search', 'newsletter', 'category', 'city'],
+    enum: ['annuaires', 'search', 'newsletter', 'category', 'city'],
     required: true,
     index: true
   },

@@ -36,16 +36,15 @@ export interface IComparison extends Document {
 
 const ComparisonSchema: Schema = new Schema({
   user: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
-  projects: [{ 
-    type: Schema.Types.ObjectId, 
-    ref: 'Project',
+  projects: {
+    type: [{ type: Schema.Types.ObjectId, ref: 'Project' }],
     validate: {
       validator: function(v: any[]) {
-        return v && v.length >= 2 && v.length <= 3;
+        return Array.isArray(v) && v.length >= 2 && v.length <= 3;
       },
       message: 'Must compare 2 or 3 projects'
     }
-  }],
+  },
   
   metrics: {
     trustScores: [{ type: Number }],

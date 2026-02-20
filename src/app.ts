@@ -75,7 +75,7 @@ app.use('/uploads', express.static('uploads'));
 app.post('/api/payments/webhook', express.raw({ type: 'application/json' }), handleStripeWebhook);
 
 // Ensuite le middleware JSON pour toutes les autres routes
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
 
 // Security middlewares
 if (process.env.TRUST_PROXY === 'true') app.set('trust proxy', 1);
@@ -93,6 +93,21 @@ const limiter = rateLimit({
 	legacyHeaders: false,
 });
 app.use(limiter);
+
+// Rate limiting strict pour les endpoints sensibles (anti brute-force)
+const authLimiter = rateLimit({
+	windowMs: 15 * 60 * 1000,
+	max: 20,
+	standardHeaders: true,
+	legacyHeaders: false,
+	message: { error: 'Trop de tentatives, veuillez réessayer dans 15 minutes' },
+});
+app.use('/api/auth/login', authLimiter);
+app.use('/api/auth/register', authLimiter);
+app.use('/api/auth/forgot-password', authLimiter);
+
+// Limite body size pour prévenir les attaques par payload
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // API Routes
 app.use('/api/auth', authRoutes);

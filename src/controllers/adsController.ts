@@ -4,7 +4,9 @@ import { AuthRequest } from '../middlewares/auth';
 
 export const createAd = async (req: AuthRequest, res: Response) => {
   try {
-    const ad = await AdsService.createAd(req.body.promoteurId || req.user!.id, req.body);
+    // Prefer promoteurProfile (Promoteur._id) if available on the authenticated user
+    const promoteurId = req.body.promoteurId || req.user?.promoteurProfile || req.user!.id;
+    const ad = await AdsService.createAd(promoteurId as any, req.body);
     res.status(201).json(ad);
   } catch (error: any) {
     res.status(400).json({ message: error.message });
@@ -80,7 +82,10 @@ export const trackClick = async (req: Request, res: Response) => {
 
 export const getMyAds = async (req: AuthRequest, res: Response) => {
   try {
-    const ads = await AdsService.getPromoteurAds(req.user!.id, {
+    // Try promoteurProfile first (Promoteur._id), fallback to User._id for backward compatibility
+    const promoteurId = req.user?.promoteurProfile || req.user!.id;
+    const userId = req.user!.id;
+    const ads = await AdsService.getPromoteurAds(promoteurId as any, userId, {
       status: req.query.status as string,
       type: req.query.type as string,
     });
@@ -114,5 +119,35 @@ export const getActiveAds = async (req: Request, res: Response) => {
     res.json(ads);
   } catch (error: any) {
     res.status(500).json({ message: error.message });
+  }
+};
+
+// Admin pause/resume (force)
+export const pauseAdAdmin = async (req: AuthRequest, res: Response) => {
+  try {
+    const ad = await AdsService.pauseAdAdmin(req.params.id);
+    if (!ad) return res.status(404).json({ message: 'Annonce non trouvée' });
+    res.json(ad);
+  } catch (error: any) {
+    res.status(400).json({ message: error.message });
+  }
+};
+
+export const resumeAdAdmin = async (req: AuthRequest, res: Response) => {
+  try {
+    const ad = await AdsService.resumeAdAdmin(req.params.id);
+    if (!ad) return res.status(404).json({ message: 'Annonce non trouvée' });
+    res.json(ad);
+  } catch (error: any) {
+    res.status(400).json({ message: error.message });
+  }
+};
+
+export const get7DayStats = async (req: AuthRequest, res: Response) => {
+  try {
+    const stats = await AdsService.get7DayStats(req.params.id);
+    res.json(stats);
+  } catch (error: any) {
+    res.status(400).json({ message: error.message });
   }
 };

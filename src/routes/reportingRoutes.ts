@@ -13,6 +13,8 @@ router.get('/sanctions/my-history', authenticateJWT, authorizeRoles(Role.PROMOTE
 // Admin routes
 router.get('/monthly', authenticateJWT, authorizeRoles(Role.ADMIN), ReportingController.getMonthlyReport);
 router.get('/promoteur/:promoteurId', authenticateJWT, authorizeRoles(Role.ADMIN), ReportingController.getPromoteurReport);
+// Promoteur can fetch their own performance report
+router.get('/promoteur/me', authenticateJWT, authorizeRoles(Role.PROMOTEUR), ReportingController.getMyPromoteurReport);
 router.get('/discipline-dashboard', authenticateJWT, authorizeRoles(Role.ADMIN), ReportingController.getDisciplineDashboard);
 router.get('/sla/:promoteurId', authenticateJWT, authorizeRoles(Role.ADMIN), ReportingController.getSLADashboard);
 router.get('/sanctions/:promoteurId', authenticateJWT, authorizeRoles(Role.ADMIN), ReportingController.getSanctionHistory);

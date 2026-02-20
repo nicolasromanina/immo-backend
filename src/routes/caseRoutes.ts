@@ -14,6 +14,9 @@ router.post('/:id/feedback', authenticateJWT, CaseController.submitFeedback);
 
 // Admin routes
 router.get('/', authenticateJWT, authorizeRoles(Role.ADMIN), CaseController.getAll);
+// Admin: stats overview for dashboard
+// Use a cast to any to avoid TypeScript mismatch when controller type isn't updated
+router.get('/stats/overview', authenticateJWT, authorizeRoles(Role.ADMIN), (CaseController as any).getStatsOverview);
 router.post('/:id/assign', authenticateJWT, authorizeRoles(Role.ADMIN), CaseController.assign);
 router.post('/:id/note', authenticateJWT, authorizeRoles(Role.ADMIN), CaseController.addNote);
 router.post('/:id/communication', authenticateJWT, authorizeRoles(Role.ADMIN), CaseController.addCommunication);

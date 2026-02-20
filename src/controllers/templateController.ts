@@ -30,15 +30,27 @@ export class TemplateController {
    */
   static async getAll(req: Request, res: Response) {
     try {
-      const { type, category, language, tags } = req.query;
+      const { type, category, language, tags, isPublic } = req.query;
 
-      const templates = await TemplateManagementService.getTemplates({
+      // By default non-admin callers should only see public templates.
+      // Admins can pass isPublic=false to view private templates or omit the filter to see all.
+      const requester = (req as any).user;
+      const asAdmin = requester && (requester.role === 'admin' || requester.roles?.includes('admin'));
+
+      const queryParams: any = {
         type: type as string,
         category: category as string,
         language: language as 'fr' | 'en',
         tags: tags ? (tags as string).split(',') : undefined,
-        isPublic: true,
-      });
+      };
+
+      if (isPublic !== undefined) {
+        queryParams.isPublic = String(isPublic) === 'true';
+      } else if (!asAdmin) {
+        queryParams.isPublic = true;
+      }
+
+      const templates = await TemplateManagementService.getTemplates(queryParams);
 
       res.json({
         success: true,

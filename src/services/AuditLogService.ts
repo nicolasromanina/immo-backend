@@ -20,8 +20,10 @@ export class AuditLogService {
     targetModel?: string;
   }) {
     try {
+      // Handle system actors: "system" is not a valid ObjectId
+      const isValidObjectId = params.actor && /^[0-9a-fA-F]{24}$/.test(params.actor);
       const log = new AuditLog({
-        actor: params.actor,
+        ...(isValidObjectId ? { actor: params.actor } : { actorLabel: params.actor || 'system' }),
         actorRole: params.actorRole,
         action: params.action,
         category: params.category,

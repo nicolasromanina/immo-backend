@@ -92,14 +92,16 @@ export class FeaturedController {
    */
   static async createFeaturedSlot(req: AuthRequest, res: Response) {
     try {
+      console.debug('[FEATURED][CTRL] createFeaturedSlot request', { body: req.body, user: req.user?.id });
       const slot = await FeaturedService.createFeaturedSlot({
         ...req.body,
         createdBy: req.user!.id,
       });
+      console.debug('[FEATURED][CTRL] createFeaturedSlot created', { slotId: slot?._id });
 
       res.status(201).json({ slot });
     } catch (error) {
-      console.error('Error creating featured slot:', error);
+      console.error('[FEATURED][CTRL] Error creating featured slot:', error);
       res.status(500).json({ message: 'Server error' });
     }
   }
@@ -110,8 +112,10 @@ export class FeaturedController {
   static async cancelFeaturedSlot(req: AuthRequest, res: Response) {
     try {
       const { id } = req.params;
+      console.debug('[FEATURED][CTRL] cancelFeaturedSlot request', { id, user: req.user?.id });
 
       const slot = await FeaturedService.cancelFeaturedSlot(id);
+      console.debug('[FEATURED][CTRL] cancelFeaturedSlot result', { slotId: slot?._id });
 
       if (!slot) {
         return res.status(404).json({ message: 'Slot not found' });
@@ -130,6 +134,10 @@ export class FeaturedController {
   static async getAllSlots(req: AuthRequest, res: Response) {
     try {
       const { placement, status, entityType, page, limit } = req.query;
+      // Mask Authorization header for logs
+      const authHeader = req.headers.authorization as string | undefined;
+      const mask = (s?: string) => (s && s.length > 12 ? `${s.slice(0,6)}...${s.slice(-6)}` : s);
+      console.debug('[FEATURED][CTRL] getAllSlots query', { placement, status, entityType, page, limit, user: req.user?.id, auth: mask(authHeader) });
 
       const result = await FeaturedService.getAllSlots({
         placement: placement as string,
@@ -138,6 +146,15 @@ export class FeaturedController {
         page: page ? parseInt(page as string) : 1,
         limit: limit ? parseInt(limit as string) : 20,
       });
+
+      // Log a concise summary of the result
+      try {
+        const slotsCount = Array.isArray((result as any).slots) ? (result as any).slots.length : 0;
+        const total = (result as any).total ?? (result as any).pagination?.total;
+        console.debug('[FEATURED][CTRL] getAllSlots result', { slotsCount, total });
+      } catch (e) {
+        console.debug('[FEATURED][CTRL] getAllSlots result (unable to summarize)', { error: (e as Error).message });
+      }
 
       res.json(result);
     } catch (error) {
@@ -152,8 +169,10 @@ export class FeaturedController {
   static async getSlotPerformance(req: AuthRequest, res: Response) {
     try {
       const { id } = req.params;
+      console.debug('[FEATURED][CTRL] getSlotPerformance request', { id, user: req.user?.id });
 
       const performance = await FeaturedService.getSlotPerformance(id);
+      console.debug('[FEATURED][CTRL] getSlotPerformance response', { id, performance });
 
       if (!performance) {
         return res.status(404).json({ message: 'Slot not found' });
@@ -172,13 +191,15 @@ export class FeaturedController {
   static async approveSlot(req: AuthRequest, res: Response) {
     try {
       const { id } = req.params;
+      console.debug('[FEATURED][CTRL] approveSlot request', { id, user: req.user?.id });
 
       const slot = await FeaturedService.approveSlot(id);
+      console.debug('[FEATURED][CTRL] approveSlot result', { slotId: slot?._id });
       if (!slot) return res.status(404).json({ message: 'Slot not found' });
 
       res.json({ slot });
     } catch (error) {
-      console.error('Error approving slot:', error);
+      console.error('[FEATURED][CTRL] Error approving slot:', error);
       res.status(500).json({ message: 'Server error' });
     }
   }
@@ -190,13 +211,15 @@ export class FeaturedController {
     try {
       const { id } = req.params;
       const { reason } = req.body;
+      console.debug('[FEATURED][CTRL] rejectSlot request', { id, reason, user: req.user?.id });
 
       const slot = await FeaturedService.rejectSlot(id, reason);
+      console.debug('[FEATURED][CTRL] rejectSlot result', { slotId: slot?._id });
       if (!slot) return res.status(404).json({ message: 'Slot not found' });
 
       res.json({ slot });
     } catch (error) {
-      console.error('Error rejecting slot:', error);
+      console.error('[FEATURED][CTRL] Error rejecting slot:', error);
       res.status(500).json({ message: 'Server error' });
     }
   }
@@ -208,13 +231,15 @@ export class FeaturedController {
     try {
       const { id } = req.params;
       const data = req.body;
+      console.debug('[FEATURED][CTRL] updateSlot request', { id, data, user: req.user?.id });
 
       const slot = await FeaturedService.updateSlot(id, data);
+      console.debug('[FEATURED][CTRL] updateSlot result', { slotId: slot?._id });
       if (!slot) return res.status(404).json({ message: 'Slot not found' });
 
       res.json({ slot });
     } catch (error) {
-      console.error('Error updating slot:', error);
+      console.error('[FEATURED][CTRL] Error updating slot:', error);
       res.status(500).json({ message: 'Server error' });
     }
   }
@@ -224,11 +249,13 @@ export class FeaturedController {
    */
   static async runAutoFeature(req: AuthRequest, res: Response) {
     try {
+      console.debug('[FEATURED][CTRL] runAutoFeature request', { user: req.user?.id });
       const count = await FeaturedService.autoFeatureTopProjects();
+      console.debug('[FEATURED][CTRL] runAutoFeature result', { featuredCount: count });
 
       res.json({ featuredCount: count });
     } catch (error) {
-      console.error('Error running auto-feature:', error);
+      console.error('[FEATURED][CTRL] Error running auto-feature:', error);
       res.status(500).json({ message: 'Server error' });
     }
   }

@@ -9,7 +9,7 @@ export class FeaturedService {
    * Get active featured items for a placement
    */
   static async getFeaturedItems(
-    placement: 'homepage' | 'search' | 'newsletter' | 'category' | 'city',
+    placement: 'annuaires' | 'search' | 'newsletter' | 'category' | 'city',
     options?: {
       country?: string;
       city?: string;
@@ -212,7 +212,7 @@ export class FeaturedService {
       await this.createFeaturedSlot({
         entityType: 'project',
         entityId: project._id.toString(),
-        placement: 'homepage',
+        placement: 'annuaires',
         startDate: now,
         endDate,
         type: 'automatic',
@@ -309,6 +309,8 @@ export class FeaturedService {
     const limit = filters.limit || 20;
     const skip = (page - 1) * limit;
 
+    console.debug('[FEATURED][SRV] getAllSlots query', { query: { ...query }, page, limit, skip });
+
     const slots = await FeaturedSlot.find(query)
       .populate('entity', 'title organizationName plan subscriptionStatus logo')
       .populate('createdBy', 'email')
@@ -317,6 +319,12 @@ export class FeaturedService {
       .limit(limit);
 
     const total = await FeaturedSlot.countDocuments(query);
+
+    console.debug('[FEATURED][SRV] getAllSlots db result', {
+      total,
+      slotsCount: Array.isArray(slots) ? slots.length : 0,
+      sampleIds: Array.isArray(slots) ? slots.slice(0,5).map(s => (s as any)._id) : [],
+    });
 
     return {
       slots,

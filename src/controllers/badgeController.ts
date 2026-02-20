@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import Badge from '../models/Badge';
+import Promoteur from '../models/Promoteur';
 import { BadgeService } from '../services/BadgeService';
 import { Role } from '../config/roles';
 
@@ -164,6 +165,144 @@ export class BadgeController {
       res.json({
         success: true,
         message: 'Default badges initialized',
+      });
+    } catch (error: any) {
+      res.status(400).json({
+        success: false,
+        error: error.message,
+      });
+    }
+  }
+
+  /**
+   * Assign badge to promoteur (admin)
+   */
+  static async assignBadge(req: Request, res: Response) {
+    try {
+      // Log du corps reçu
+      console.log('[assignBadge] req.body:', req.body);
+      const { promoteurId, badgeId } = req.body;
+
+      if (!promoteurId || !badgeId) {
+        console.error('[assignBadge] Missing promoteurId or badgeId');
+        return res.status(400).json({
+          success: false,
+          error: 'promoteurId and badgeId are required',
+        });
+      }
+
+      const promoteur = await Promoteur.findById(promoteurId);
+      if (!promoteur) {
+        console.error('[assignBadge] Promoteur not found:', promoteurId);
+        return res.status(404).json({
+          success: false,
+          error: 'Promoteur not found',
+        });
+      }
+
+      const badge = await Badge.findById(badgeId);
+      if (!badge) {
+        console.error('[assignBadge] Badge not found:', badgeId);
+        return res.status(404).json({
+          success: false,
+          error: 'Badge not found',
+        });
+      }
+
+      // Check if already has badge
+      const hasBadge = promoteur.badges.some(
+        (b: any) => b.badgeId.toString() === badgeId
+      );
+
+      if (hasBadge) {
+        console.error('[assignBadge] Promoteur already has this badge:', badgeId);
+        return res.status(400).json({
+          success: false,
+          error: 'Promoteur already has this badge',
+        });
+      }
+
+      const expiresAt = badge.hasExpiration && badge.expirationDays
+        ? new Date(Date.now() + badge.expirationDays * 24 * 60 * 60 * 1000)
+        : undefined;
+
+      promoteur.badges.push({
+        badgeId: badge._id as any,
+        earnedAt: new Date(),
+        expiresAt,
+      });
+
+      badge.activeCount += 1;
+      badge.totalEarned += 1;
+
+      await promoteur.save();
+      await badge.save();
+
+      res.json({
+        success: true,
+        message: 'Badge assigned',
+        data: promoteur,
+      });
+    } catch (error: any) {
+      console.error('[assignBadge] Exception:', error);
+      res.status(400).json({
+        success: false,
+        error: error.message,
+      });
+    }
+  }
+
+  /**
+   * Revoke badge from promoteur (admin)
+   */
+  static async revokeBadge(req: Request, res: Response) {
+    try {
+      const { promoteurId, badgeId } = req.body;
+
+      if (!promoteurId || !badgeId) {
+        return res.status(400).json({
+          success: false,
+          error: 'promoteurId and badgeId are required',
+        });
+      }
+
+      const promoteur = await Promoteur.findById(promoteurId);
+      if (!promoteur) {
+        return res.status(404).json({
+          success: false,
+          error: 'Promoteur not found',
+        });
+      }
+
+      const badge = await Badge.findById(badgeId);
+      if (!badge) {
+        return res.status(404).json({
+          success: false,
+          error: 'Badge not found',
+        });
+      }
+
+      const badgeIndex = promoteur.badges.findIndex(
+        (b: any) => b.badgeId.toString() === badgeId
+      );
+
+      if (badgeIndex === -1) {
+        return res.status(404).json({
+          success: false,
+          error: 'Badge not found on promoteur',
+        });
+      }
+
+      promoteur.badges.splice(badgeIndex, 1);
+      badge.activeCount = Math.max(0, badge.activeCount - 1);
+
+      await promoteur.save();
+      await badge.save();
+
+      res.json({
+        success: true,
+        message: 'Badge revoked',
+        data: promoteur,
       });
     } catch (error: any) {
       res.status(400).json({

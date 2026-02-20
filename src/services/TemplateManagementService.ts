@@ -11,7 +11,9 @@ export class TemplateManagementService {
    */
   static async createTemplate(params: {
     name: string;
-    type: 'whatsapp' | 'email' | 'sms' | 'brochure' | 'faq';
+    // Accept either `type` or legacy `channel` from frontend
+    type?: 'whatsapp' | 'email' | 'sms' | 'brochure' | 'faq';
+    channel?: 'whatsapp' | 'email' | 'sms' | 'brochure' | 'faq';
     category: string;
     subject?: string;
     content: string;
@@ -30,8 +32,12 @@ export class TemplateManagementService {
     // Extract variables from content
     const variables = params.variables || this.extractVariables(params.content);
 
+    // Normalize type (support legacy `channel` field)
+    const resolvedType = (params.type || params.channel) as any;
+
     const template = new Template({
       ...params,
+      type: resolvedType,
       slug,
       variables,
       isActive: true,

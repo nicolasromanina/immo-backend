@@ -41,6 +41,9 @@ router.get('/onboarding/status', PromoteurController.getOnboardingStatus);
 // Trust score
 router.get('/trust-score', PromoteurController.getTrustScore);
 
+// Trust score history for promoteur (self)
+router.get('/trust-score/history', PromoteurController.getTrustScoreHistory);
+
 // Availability
 router.get('/availability', PromoteurController.getAvailability);
 router.put('/availability', PromoteurController.updateAvailability);
@@ -72,5 +75,6 @@ router.post('/compliance/request', PromoteurController.requestComplianceUpgrade)
 router.get('/analytics/dashboard', PromoteurController.getAnalytics);
 router.get('/analytics/leads-timeline', PromoteurController.getLeadsTimeline);
 router.get('/analytics/revenue-forecast', PromoteurController.getRevenueForecast);
+router.get('/analytics/growth-dashboard', PromoteurController.getGrowthDashboard);
 
 export default router;

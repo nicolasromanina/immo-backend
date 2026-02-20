@@ -199,6 +199,11 @@ CaseSchema.index({ caseNumber: 1 });
 CaseSchema.index({ status: 1, priority: 1 });
 CaseSchema.index({ assignedTo: 1, status: 1 });
 CaseSchema.index({ type: 1, category: 1 });
+// Indexes to support SLA/time-range queries and aggregations
+CaseSchema.index({ reportedAt: 1 });
+CaseSchema.index({ firstResponseAt: 1 });
+CaseSchema.index({ slaDeadline: 1 });
+CaseSchema.index({ slaBreached: 1 });
 
 // Auto-generate case number
 CaseSchema.pre('save', async function(next) {

@@ -52,6 +52,30 @@ export class CaseController {
   }
 
   /**
+   * Admin: statistics overview for cases (used by admin dashboard)
+   */
+  static async getStatsOverview(req: Request, res: Response) {
+    try {
+      const total = await Case.countDocuments();
+      const open = await Case.countDocuments({ status: { $nin: ['resolu', 'ferme'] } });
+      const critical = await Case.countDocuments({ priority: { $in: ['high', 'urgent'] } });
+
+      const startOfMonth = new Date();
+      startOfMonth.setDate(1);
+      startOfMonth.setHours(0, 0, 0, 0);
+
+      const resolvedThisMonth = await Case.countDocuments({ resolvedAt: { $gte: startOfMonth } });
+
+      res.json({
+        success: true,
+        data: { total, open, critical, resolvedThisMonth },
+      });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  }
+
+  /**
    * Get case by ID
    */
   static async getById(req: Request, res: Response) {
