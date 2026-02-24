@@ -12,6 +12,7 @@ import { NotificationService } from '../services/NotificationService';
 import { Role } from '../config/roles';
 import Availability from '../models/Availability';
 import { InvitationService } from '../services/InvitationService';
+import { getJwtSecret } from '../config/jwt';
 
 export class PromoteurController {
   /**
@@ -1192,7 +1193,7 @@ export class PromoteurController {
           id: result.user!._id, 
           roles: result.user!.roles 
         },
-        process.env.JWT_SECRET!,
+        getJwtSecret(),
         { expiresIn: '24h' }
       );
       console.log('[acceptInvitation] New JWT generated with roles:', result.user!.roles);

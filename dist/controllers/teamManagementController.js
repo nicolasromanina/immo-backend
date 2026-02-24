@@ -1,0 +1,344 @@
+"use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.TeamManagementController = void 0;
+const Promoteur_1 = __importDefault(require("../models/Promoteur"));
+const TeamRole_1 = __importDefault(require("../models/TeamRole"));
+const TeamActivity_1 = __importDefault(require("../models/TeamActivity"));
+const Lead_1 = __importDefault(require("../models/Lead"));
+const User_1 = __importDefault(require("../models/User"));
+class TeamManagementController {
+    /**
+     * Get all team members with their roles and permissions
+     */
+    async getTeamMembers(req, res) {
+        try {
+            const reqUser = req.user || {};
+            const userId = reqUser.id;
+            console.log(`[getTeamMembers] Fetching for userId: ${userId}, promoteurProfile: ${reqUser.promoteurProfile}`);
+            const promoteurByUser = userId ? await Promoteur_1.default.findOne({ user: userId }).populate('teamMembers.userId') : null;
+            const promoteur = promoteurByUser || (reqUser.promoteurProfile ? await Promoteur_1.default.findById(reqUser.promoteurProfile).populate('teamMembers.userId') : null);
+            if (!promoteur) {
+                return res.status(404).json({ message: 'Promoteur not found' });
+            }
+            console.log(`[getTeamMembers] Found promoteur, teamMembers count: ${promoteur.teamMembers?.length}`);
+            // Get team roles
+            const teamRoles = await TeamRole_1.default.find({ promoteur: promoteur._id });
+            // Enrich team members with roles
+            const teamWithRoles = await Promise.all(promoteur.teamMembers.map(async (member, idx) => {
+                let memberUser = member.userId;
+                // If not populated or missing data, fetch from DB
+                if (!memberUser || !memberUser.email) {
+                    memberUser = await User_1.default.findById(member.userId).lean();
+                    console.log(`[getTeamMembers] Had to fetch User ${idx}: Email=${memberUser?.email}, FirstName=${memberUser?.firstName}, LastName=${memberUser?.lastName}`);
+                }
+                else {
+                    console.log(`[getTeamMembers] Already populated Member ${idx}: Email=${memberUser?.email}, FirstName=${memberUser?.firstName}, LastName=${memberUser?.lastName}`);
+                }
+                const roleData = teamRoles.find(r => r.name === member.role);
+                // Use email as fallback if first/last names are missing
+                let displayName = `${memberUser?.firstName || ''} ${memberUser?.lastName || ''}`.trim();
+                if (!displayName) {
+                    displayName = memberUser?.email?.split('@')[0] || 'Unknown';
+                }
+                return {
+                    userId: member.userId,
+                    email: memberUser?.email,
+                    name: displayName,
+                    role: member.role,
+                    permissions: roleData?.permissions || {},
+                    addedAt: member.addedAt,
+                };
+            }));
+            res.json({ teamMembers: teamWithRoles, roles: teamRoles });
+        }
+        catch (error) {
+            console.error('Error getting team members:', error);
+            res.status(500).json({ message: 'Error fetching team members' });
+        }
+    }
+    /**
+     * Create or update a team role with granular permissions
+     */
+    async createTeamRole(req, res) {
+        try {
+            const reqUser = req.user || {};
+            const userId = reqUser.id;
+            const { name, description, permissions } = req.body;
+            const promoteur = await Promoteur_1.default.findOne({ user: userId });
+            if (!promoteur) {
+                return res.status(404).json({ message: 'Promoteur not found' });
+            }
+            // Check if role already exists
+            const existingRole = await TeamRole_1.default.findOne({ promoteur: promoteur._id, name });
+            if (existingRole) {
+                existingRole.description = description;
+                existingRole.permissions = { ...existingRole.permissions, ...permissions };
+                await existingRole.save();
+                return res.json({ message: 'Role updated', role: existingRole });
+            }
+            const newRole = await TeamRole_1.default.create({
+                promoteur: promoteur._id,
+                name,
+                description,
+                permissions,
+            });
+            // Log activity
+            await TeamActivity_1.default.create({
+                promoteur: promoteur._id,
+                actor: userId,
+                action: 'created',
+                category: 'permission',
+                targetType: 'role',
+                targetName: name,
+                details: { after: permissions },
+            });
+            res.json({ message: 'Role created', role: newRole });
+        }
+        catch (error) {
+            console.error('Error creating team role:', error);
+            res.status(500).json({ message: 'Error creating role' });
+        }
+    }
+    /**
+     * Assign a lead to a team member
+     */
+    async assignLead(req, res) {
+        try {
+            const reqUser = req.user || {};
+            const userId = reqUser.id;
+            const { leadId, assignToUserId } = req.body;
+            const promoteur = await Promoteur_1.default.findOne({ user: userId });
+            if (!promoteur) {
+                return res.status(404).json({ message: 'Promoteur not found' });
+            }
+            // Check if assignee is part of the team
+            const teamMember = promoteur.teamMembers.find((m) => m.userId.toString() === assignToUserId);
+            if (!teamMember) {
+                return res.status(403).json({ message: 'User is not a team member' });
+            }
+            // Check permissions
+            const roleData = await TeamRole_1.default.findOne({
+                promoteur: promoteur._id,
+                name: teamMember.role
+            });
+            const currentUserRole = promoteur.teamMembers.find((m) => m.userId.toString() === userId);
+            const currentRoleData = await TeamRole_1.default.findOne({
+                promoteur: promoteur._id,
+                name: currentUserRole?.role
+            });
+            if (!currentRoleData?.permissions.assignLeads) {
+                return res.status(403).json({ message: 'You do not have permission to assign leads' });
+            }
+            const lead = await Lead_1.default.findById(leadId);
+            if (!lead) {
+                return res.status(404).json({ message: 'Lead not found' });
+            }
+            const oldAssignment = lead.assignedTo;
+            lead.assignedTo = assignToUserId;
+            await lead.save();
+            // Log activity
+            await TeamActivity_1.default.create({
+                promoteur: promoteur._id,
+                actor: userId,
+                action: 'assigned',
+                category: 'assignment',
+                targetType: 'lead',
+                targetId: leadId,
+                targetName: `${lead.firstName} ${lead.lastName}`,
+                leadAssignment: {
+                    leadId,
+                    assignedTo: assignToUserId,
+                    assignedBy: userId,
+                },
+                details: {
+                    before: { assignedTo: oldAssignment },
+                    after: { assignedTo: assignToUserId },
+                },
+            });
+            res.json({ message: 'Lead assigned successfully', lead });
+        }
+        catch (error) {
+            console.error('Error assigning lead:', error);
+            res.status(500).json({ message: 'Error assigning lead' });
+        }
+    }
+    /**
+     * Get team activity log
+     */
+    async getTeamActivityLog(req, res) {
+        try {
+            const reqUser = req.user || {};
+            const userId = reqUser.id;
+            const { limit = 50, skip = 0, category, action } = req.query;
+            const promoteur = await Promoteur_1.default.findOne({ user: userId });
+            if (!promoteur) {
+                return res.status(404).json({ message: 'Promoteur not found' });
+            }
+            // Check permission to view audit logs
+            // If user is the promoteur owner, allow access
+            if (promoteur.user.toString() !== userId) {
+                const userRole = promoteur.teamMembers.find((m) => m.userId.toString() === userId);
+                const roleData = await TeamRole_1.default.findOne({
+                    promoteur: promoteur._id,
+                    name: userRole?.role
+                });
+                if (!roleData?.permissions.viewAuditLogs && userRole?.role !== 'admin') {
+                    return res.status(403).json({ message: 'You do not have permission to view audit logs' });
+                }
+            }
+            // Build query
+            const query = { promoteur: promoteur._id };
+            if (category)
+                query.category = category;
+            if (action)
+                query.action = action;
+            const activities = await TeamActivity_1.default.find(query)
+                .populate('actor', 'email firstName lastName')
+                .sort({ timestamp: -1 })
+                .limit(parseInt(limit))
+                .skip(parseInt(skip));
+            const total = await TeamActivity_1.default.countDocuments(query);
+            res.json({ activities, total, limit, skip });
+        }
+        catch (error) {
+            console.error('Error fetching activity log:', error);
+            res.status(500).json({ message: 'Error fetching activity log' });
+        }
+    }
+    /**
+     * Get lead assignments for a team member
+     */
+    async getTeamMemberAssignments(req, res) {
+        try {
+            const reqUser = req.user || {};
+            const userIdReq = reqUser.id;
+            const { userId } = req.params;
+            const promoteur = await Promoteur_1.default.findOne({ user: userIdReq });
+            if (!promoteur) {
+                return res.status(404).json({ message: 'Promoteur not found' });
+            }
+            // Verify user is team member
+            const teamMember = promoteur.teamMembers.find((m) => m.userId.toString() === userId);
+            if (!teamMember) {
+                return res.status(403).json({ message: 'User is not a team member' });
+            }
+            const leads = await Lead_1.default.find({
+                promoteur: promoteur._id,
+                assignedTo: userId
+            }).select('firstName lastName email score status budget sourceLeadCreatedAt');
+            res.json({ assignments: leads, total: leads.length, userId });
+        }
+        catch (error) {
+            console.error('Error fetching team member assignments:', error);
+            res.status(500).json({ message: 'Error fetching assignments' });
+        }
+    }
+    /**
+     * Get member modifications history
+     */
+    async getMemberModificationHistory(req, res) {
+        try {
+            const reqUser = req.user || {};
+            const userIdReq = reqUser.id;
+            const { userId } = req.params;
+            const { limit = 30, skip = 0 } = req.query;
+            const promoteur = await Promoteur_1.default.findOne({ user: userIdReq });
+            if (!promoteur) {
+                return res.status(404).json({ message: 'Promoteur not found' });
+            }
+            // Check if user can view this history
+            // If user is the promoteur owner or requesting their own history, allow access
+            if (userId !== userIdReq && promoteur.user.toString() !== userIdReq) {
+                const userRole = promoteur.teamMembers.find((m) => m.userId.toString() === userIdReq);
+                const roleData = await TeamRole_1.default.findOne({
+                    promoteur: promoteur._id,
+                    name: userRole?.role
+                });
+                if (!roleData?.permissions.viewAuditLogs && userRole?.role !== 'admin') {
+                    return res.status(403).json({ message: 'You do not have permission to view this history' });
+                }
+            }
+            const history = await TeamActivity_1.default.find({
+                promoteur: promoteur._id,
+                actor: userId,
+            })
+                .populate('actor', 'email firstName lastName')
+                .sort({ timestamp: -1 })
+                .limit(parseInt(limit))
+                .skip(parseInt(skip));
+            const total = await TeamActivity_1.default.countDocuments({
+                promoteur: promoteur._id,
+                actor: userId,
+            });
+            // Group by date for better visualization
+            const groupedHistory = history.reduce((acc, activity) => {
+                const date = new Date(activity.timestamp).toLocaleDateString('fr-FR');
+                if (!acc[date])
+                    acc[date] = [];
+                acc[date].push(activity);
+                return acc;
+            }, {});
+            res.json({ history: groupedHistory, total, userId });
+        }
+        catch (error) {
+            console.error('Error fetching modification history:', error);
+            res.status(500).json({ message: 'Error fetching history' });
+        }
+    }
+    /**
+     * Update team member role and permissions
+     */
+    async updateTeamMemberRole(req, res) {
+        try {
+            const reqUser = req.user || {};
+            const userId = reqUser.id;
+            const { memberId, newRole } = req.body;
+            const promoteur = await Promoteur_1.default.findOne({ user: userId });
+            if (!promoteur) {
+                return res.status(404).json({ message: 'Promoteur not found' });
+            }
+            // Check permission
+            const currentUserRole = promoteur.teamMembers.find((m) => m.userId.toString() === userId);
+            const currentRoleData = await TeamRole_1.default.findOne({
+                promoteur: promoteur._id,
+                name: currentUserRole?.role
+            });
+            if (!currentRoleData?.permissions.changeRoles) {
+                return res.status(403).json({ message: 'You do not have permission to change roles' });
+            }
+            // Update team member role
+            const teamMemberIndex = promoteur.teamMembers.findIndex((m) => m.userId.toString() === memberId);
+            if (teamMemberIndex === -1) {
+                return res.status(404).json({ message: 'Team member not found' });
+            }
+            const oldRole = promoteur.teamMembers[teamMemberIndex].role;
+            promoteur.teamMembers[teamMemberIndex].role = newRole;
+            await promoteur.save();
+            // Log activity
+            const memberUser = await User_1.default.findById(memberId).select('email firstName lastName');
+            await TeamActivity_1.default.create({
+                promoteur: promoteur._id,
+                actor: userId,
+                action: 'updated',
+                category: 'team',
+                targetType: 'team_member',
+                targetId: memberId,
+                targetName: `${memberUser?.firstName} ${memberUser?.lastName}`,
+                details: {
+                    before: { role: oldRole },
+                    after: { role: newRole },
+                },
+            });
+            res.json({ message: 'Team member role updated', promoteur });
+        }
+        catch (error) {
+            console.error('Error updating team member role:', error);
+            res.status(500).json({ message: 'Error updating role' });
+        }
+    }
+}
+exports.TeamManagementController = TeamManagementController;
+exports.default = new TeamManagementController();

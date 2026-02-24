@@ -5,6 +5,7 @@ import Lead from '../models/Lead';
 import User from '../models/User';
 import { authenticateJWT, AuthRequest } from '../middlewares/auth';
 import { InvitationService } from '../services/InvitationService';
+import { getJwtSecret } from '../config/jwt';
 
 const router = Router();
 
@@ -240,7 +241,7 @@ router.post('/accept-invitation/:token', authenticateJWT, async (req: AuthReques
         id: result.user!._id, 
         roles: result.user!.roles 
       },
-      process.env.JWT_SECRET!,
+      getJwtSecret(),
       { expiresIn: '24h' }
     );
     console.log('[acceptInvitation] New JWT generated with roles:', result.user!.roles);

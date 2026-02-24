@@ -3,6 +3,7 @@ import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import User, { IUser } from '../models/User';
 import { Role } from '../config/roles';
+import { getJwtSecret } from '../config/jwt';
 
 export const register = async (req: Request, res: Response) => {
   const { email, password, roles } = req.body;
@@ -26,7 +27,7 @@ export const login = async (req: Request, res: Response) => {
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) return res.status(400).json({ message: 'Invalid credentials' });
     
-    const token = jwt.sign({ id: user._id, roles: user.roles }, process.env.JWT_SECRET || 'secret', { expiresIn: '1d' });
+    const token = jwt.sign({ id: user._id, roles: user.roles }, getJwtSecret(), { expiresIn: '1d' });
     console.log('[AuthController.login] User roles after login:', user.roles);
     console.log('[AuthController.login] Token issued for user:', user.email, 'roles:', user.roles);
     res.json({ token });

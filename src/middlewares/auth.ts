@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { Role } from '../config/roles';
 import User from '../models/User';
+import { getJwtSecret } from '../config/jwt';
 
 export interface AuthRequest extends Request {
   user?: { id: string; roles: Role[]; promoteurProfile?: any };
@@ -11,7 +12,7 @@ export const authenticateJWT = async (req: AuthRequest, res: Response, next: Nex
   const token = req.header('Authorization')?.replace('Bearer ', '');
   if (!token) return res.status(401).json({ message: 'No token provided' });
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'secret') as any;
+    const decoded = jwt.verify(token, getJwtSecret()) as any;
     console.log('[authenticateJWT] Token décodé:', decoded);
     req.user = { id: decoded.id, roles: decoded.roles };
     
@@ -40,7 +41,7 @@ export const authenticateJWTOptional = async (req: AuthRequest, res: Response, n
     return next();
   }
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'secret') as any;
+    const decoded = jwt.verify(token, getJwtSecret()) as any;
     console.log('[authenticateJWTOptional] Token décodé:', decoded);
     req.user = { id: decoded.id, roles: decoded.roles };
     

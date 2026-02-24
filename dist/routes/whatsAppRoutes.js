@@ -1,0 +1,10 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const whatsAppController_1 = require("../controllers/whatsAppController");
+const auth_1 = require("../middlewares/auth");
+const roles_1 = require("../config/roles");
+const router = (0, express_1.Router)();
+router.post('/send', auth_1.authenticateJWT, (0, auth_1.authorizeRoles)(roles_1.Role.PROMOTEUR, roles_1.Role.ADMIN), whatsAppController_1.WhatsAppController.sendToLead);
+router.get('/lead/:leadId', auth_1.authenticateJWT, (0, auth_1.authorizeRoles)(roles_1.Role.PROMOTEUR, roles_1.Role.ADMIN), whatsAppController_1.WhatsAppController.getLeadMessages);
+exports.default = router;

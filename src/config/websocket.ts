@@ -3,6 +3,7 @@ import { Server as SocketServer, Socket } from 'socket.io';
 import jwt from 'jsonwebtoken';
 import Notification from '../models/Notification';
 import { RealChatService } from '../services/RealChatService';
+import { getJwtSecret } from './jwt';
 
 let io: SocketServer | null = null;
 
@@ -40,7 +41,7 @@ export function initWebSocket(server: HTTPServer): SocketServer {
     }
 
     try {
-      const decoded = jwt.verify(token as string, process.env.JWT_SECRET || 'secret') as any;
+      const decoded = jwt.verify(token as string, getJwtSecret()) as any;
       (socket as any).userId = decoded.id || decoded.userId;
       (socket as any).roles = decoded.roles || [];
       console.debug('[WS] token decoded', { socketId: socket.id, userId: (socket as any).userId, roles: (socket as any).roles });
