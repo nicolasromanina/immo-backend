@@ -1,11 +1,102 @@
 import { Router, Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
 import Promoteur from '../models/Promoteur';
+import Lead from '../models/Lead';
 import User from '../models/User';
 import { authenticateJWT, AuthRequest } from '../middlewares/auth';
 import { InvitationService } from '../services/InvitationService';
+import { getJwtSecret } from '../config/jwt';
 
 const router = Router();
+
+async function attachPublicLeadMetrics<T extends { _id: any; totalLeadsReceived?: number; averageResponseTime?: number }>(
+  promoters: T[]
+): Promise<Array<T & { responseRate?: number; totalLeadsReceived: number; averageResponseTime?: number }>> {
+  if (!promoters.length) {
+    return [];
+  }
+
+  const promoterIds = promoters.map((p) => p._id);
+
+  const leadMetrics = await Lead.aggregate([
+    {
+      $match: {
+        promoteur: { $in: promoterIds },
+      },
+    },
+    {
+      $group: {
+        _id: '$promoteur',
+        totalLeads: { $sum: 1 },
+        respondedLeads: {
+          $sum: {
+            $cond: [
+              {
+                $or: [
+                  { $ifNull: ['$lastContactDate', false] },
+                  { $ne: ['$status', 'nouveau'] },
+                ],
+              },
+              1,
+              0,
+            ],
+          },
+        },
+        avgResponseTime: {
+          $avg: {
+            $ifNull: [
+              '$responseTime',
+              {
+                $cond: [
+                  { $ifNull: ['$lastContactDate', false] },
+                  {
+                    $divide: [
+                      { $subtract: ['$lastContactDate', '$createdAt'] },
+                      1000 * 60 * 60,
+                    ],
+                  },
+                  null,
+                ],
+              },
+            ],
+          },
+        },
+      },
+    },
+  ]);
+
+  const metricsByPromoter = new Map<string, { totalLeads: number; respondedLeads: number; avgResponseTime?: number }>();
+  for (const metric of leadMetrics) {
+    metricsByPromoter.set(String(metric._id), {
+      totalLeads: metric.totalLeads || 0,
+      respondedLeads: metric.respondedLeads || 0,
+      avgResponseTime: typeof metric.avgResponseTime === 'number' ? metric.avgResponseTime : undefined,
+    });
+  }
+
+  return promoters.map((promoter) => {
+    const metrics = metricsByPromoter.get(String(promoter._id));
+    const totalLeadsReceived = promoter.totalLeadsReceived ?? metrics?.totalLeads ?? 0;
+    const responseRate =
+      metrics && metrics.totalLeads > 0
+        ? Number(((metrics.respondedLeads / metrics.totalLeads) * 100).toFixed(1))
+        : undefined;
+
+    const averageResponseTime =
+      typeof promoter.averageResponseTime === 'number'
+        ? promoter.averageResponseTime
+        : typeof metrics?.avgResponseTime === 'number'
+          ? Number(metrics.avgResponseTime.toFixed(1))
+          : undefined;
+
+    return {
+      ...promoter,
+      totalLeadsReceived,
+      averageResponseTime,
+      responseRate,
+    };
+  });
+}
 
 /**
  * GET /api/public/promoteurs/profile
@@ -58,12 +149,14 @@ router.get('/top-rated', async (req: Request, res: Response) => {
       kycStatus: 'verified',
       subscriptionStatus: { $in: ['active', 'trial'] }
     })
-      .select('_id organizationName plan description logo trustScore activeProjects user kycStatus')
+      .select('_id organizationName plan description logo trustScore activeProjects totalProjects totalLeadsReceived averageResponseTime user kycStatus')
       .populate('user', 'avatar')
       .sort({ trustScore: -1 })
       .limit(limit)
       .skip(skip)
       .lean();
+
+    const promotersWithMetrics = await attachPublicLeadMetrics(promoters);
 
     const total = await Promoteur.countDocuments({
       kycStatus: 'verified',
@@ -71,7 +164,7 @@ router.get('/top-rated', async (req: Request, res: Response) => {
     });
 
     res.json({
-      data: promoters,
+      data: promotersWithMetrics,
       pagination: {
         total,
         page,
@@ -100,19 +193,21 @@ router.get('/', async (req: Request, res: Response) => {
     const promoters = await Promoteur.find({
       subscriptionStatus: { $in: ['active', 'trial'] }
     })
-      .select('_id organizationName plan description logo trustScore activeProjects user kycStatus')
+      .select('_id organizationName plan description logo trustScore activeProjects totalProjects totalLeadsReceived averageResponseTime user kycStatus')
       .populate('user', 'avatar')
       .sort({ trustScore: -1 })
       .limit(limit)
       .skip(skip)
       .lean();
 
+    const promotersWithMetrics = await attachPublicLeadMetrics(promoters);
+
     const total = await Promoteur.countDocuments({
       subscriptionStatus: { $in: ['active', 'trial'] }
     });
 
     res.json({
-      data: promoters,
+      data: promotersWithMetrics,
       pagination: {
         total,
         page,
@@ -146,7 +241,7 @@ router.post('/accept-invitation/:token', authenticateJWT, async (req: AuthReques
         id: result.user!._id, 
         roles: result.user!.roles 
       },
-      process.env.JWT_SECRET!,
+      getJwtSecret(),
       { expiresIn: '24h' }
     );
     console.log('[acceptInvitation] New JWT generated with roles:', result.user!.roles);

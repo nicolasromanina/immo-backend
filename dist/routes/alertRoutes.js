@@ -1,0 +1,15 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const alertController_1 = require("../controllers/alertController");
+const auth_1 = require("../middlewares/auth");
+const router = (0, express_1.Router)();
+router.post('/', auth_1.authenticateJWT, alertController_1.AlertController.create);
+router.get('/my-alerts', auth_1.authenticateJWT, alertController_1.AlertController.getMyAlerts);
+router.get('/preferences', auth_1.authenticateJWT, alertController_1.AlertController.getActivePreferences);
+router.put('/:id', auth_1.authenticateJWT, alertController_1.AlertController.update);
+router.post('/:id/read', auth_1.authenticateJWT, alertController_1.AlertController.markAsRead);
+router.post('/read-all', auth_1.authenticateJWT, alertController_1.AlertController.markAllAsRead);
+router.post('/:id/toggle', auth_1.authenticateJWT, alertController_1.AlertController.toggle);
+router.delete('/:id', auth_1.authenticateJWT, alertController_1.AlertController.delete);
+exports.default = router;

@@ -1,25 +1,25 @@
 import { Router } from 'express';
 import { LeadController } from '../controllers/leadController';
-import { authenticateJWT, authorizeRoles } from '../middlewares/auth';
-import { Role } from '../config/roles';
+import { authenticateJWT, authenticateJWTOptional } from '../middlewares/auth';
+import { requirePromoteurAccess, requirePromoteurPermission } from '../middlewares/promoteurRbac';
 
 const router = Router();
 
-// Create lead (public endpoint - anyone can submit)
-router.post('/', LeadController.createLead);
+// Create lead (public endpoint - anyone can submit, but capture auth if provided)
+router.post('/', authenticateJWTOptional, LeadController.createLead);
 
 // Promoteur-only routes
-router.get('/', authenticateJWT, authorizeRoles(Role.PROMOTEUR, Role.ADMIN), LeadController.getLeads);
+router.get('/', authenticateJWT, requirePromoteurAccess, requirePromoteurPermission('viewLeads'), LeadController.getLeads);
 
 // Availability + appointments
 router.get('/availability/:promoteurId', authenticateJWT, LeadController.getPromoteurAvailability);
 router.post('/:id/appointment', authenticateJWT, LeadController.scheduleAppointment);
-router.get('/appointments/list', authenticateJWT, authorizeRoles(Role.PROMOTEUR, Role.ADMIN), LeadController.getAppointments);
-router.get('/export/csv', authenticateJWT, authorizeRoles(Role.PROMOTEUR, Role.ADMIN), LeadController.exportLeads);
-router.get('/:id', authenticateJWT, authorizeRoles(Role.PROMOTEUR, Role.ADMIN), LeadController.getLead);
-router.put('/:id/status', authenticateJWT, authorizeRoles(Role.PROMOTEUR, Role.ADMIN), LeadController.updateLeadStatus);
-router.post('/:id/note', authenticateJWT, authorizeRoles(Role.PROMOTEUR, Role.ADMIN), LeadController.addNote);
-router.post('/:id/flag', authenticateJWT, authorizeRoles(Role.PROMOTEUR, Role.ADMIN), LeadController.flagAsNotSerious);
-router.post('/:id/assign', authenticateJWT, authorizeRoles(Role.PROMOTEUR, Role.ADMIN), LeadController.assignLead);
+router.get('/appointments/list', authenticateJWT, requirePromoteurAccess, requirePromoteurPermission('viewLeads'), LeadController.getAppointments);
+router.get('/export/csv', authenticateJWT, requirePromoteurAccess, requirePromoteurPermission('exportLeads'), LeadController.exportLeads);
+router.get('/:id', authenticateJWT, requirePromoteurAccess, requirePromoteurPermission('viewLeads'), LeadController.getLead);
+router.put('/:id/status', authenticateJWT, requirePromoteurAccess, requirePromoteurPermission('editLeads'), LeadController.updateLeadStatus);
+router.post('/:id/note', authenticateJWT, requirePromoteurAccess, requirePromoteurPermission('editLeads'), LeadController.addNote);
+router.post('/:id/flag', authenticateJWT, requirePromoteurAccess, requirePromoteurPermission('editLeads'), LeadController.flagAsNotSerious);
+router.post('/:id/assign', authenticateJWT, requirePromoteurAccess, requirePromoteurPermission('assignLeads'), LeadController.assignLead);
 
 export default router;

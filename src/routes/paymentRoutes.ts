@@ -20,8 +20,8 @@ const router = express.Router();
 // Routes protégées pour les promoteurs
 router.post('/create-checkout-session', authenticateJWT, authorizeRoles(Role.PROMOTEUR), createCheckoutSession);
 router.post('/create-boost-session', authenticateJWT, authorizeRoles(Role.PROMOTEUR), createBoostCheckoutSession);
-router.get('/verify-boost-session', verifyBoostSession);
-router.get('/get-token-from-boost-session', getTokenFromBoostSession);
+router.get('/verify-boost-session', authenticateJWT, verifyBoostSession);
+router.get('/get-token-from-boost-session', authenticateJWT, getTokenFromBoostSession);
 router.post('/cancel-subscription', authenticateJWT, authorizeRoles(Role.PROMOTEUR), cancelSubscription);
 router.get('/subscription', authenticateJWT, authorizeRoles(Role.PROMOTEUR), getCurrentSubscription);
 router.get('/history', authenticateJWT, authorizeRoles(Role.PROMOTEUR), getPaymentHistory);

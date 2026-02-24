@@ -4,6 +4,7 @@ import Project from '../models/Project';
 import Promoteur from '../models/Promoteur';
 import User from '../models/User';
 import Favorite from '../models/Favorite';
+import Lead from '../models/Lead';
 import Document from '../models/Document';
 import { AuditLogService } from '../services/AuditLogService';
 import { TrustScoreService } from '../services/TrustScoreService';
@@ -12,6 +13,60 @@ import { OnboardingService } from '../services/OnboardingService';
 import { NotificationService } from '../services/NotificationService';
 
 export class ProjectController {
+  private static async notifyProjectCriticalStatusChange(params: {
+    projectId: string;
+    projectTitle: string;
+    status: 'pause' | 'resume';
+    resumedStatus?: string;
+  }) {
+    const [favorites, leads] = await Promise.all([
+      Favorite.find({
+        project: params.projectId,
+        alertOnStatusChange: true,
+      }).select('user'),
+      Lead.find({
+        project: params.projectId,
+        client: { $exists: true, $ne: null },
+      }).select('client'),
+    ]);
+
+    const recipients = new Set<string>();
+    favorites.forEach((favorite) => {
+      if (favorite.user) recipients.add(favorite.user.toString());
+    });
+    leads.forEach((lead) => {
+      if (lead.client) recipients.add(lead.client.toString());
+    });
+
+    if (recipients.size === 0) return;
+
+    const isPause = params.status === 'pause';
+    const title = isPause ? 'Projet temporairement en pause' : 'Projet repris';
+    const message = isPause
+      ? `Le projet "${params.projectTitle}" a ete mis en pause.`
+      : `Le projet "${params.projectTitle}" a repris (${params.resumedStatus || 'en construction'}).`;
+
+    await Promise.allSettled(
+      Array.from(recipients).map((recipient) =>
+        NotificationService.create({
+          recipient,
+          type: 'project',
+          title,
+          message,
+          relatedProject: params.projectId,
+          actionUrl: `/projects/${params.projectId}`,
+          actionLabel: 'Voir le projet',
+          priority: 'high',
+          channels: { inApp: true, email: true },
+          data: {
+            event: isPause ? 'project-paused' : 'project-resumed',
+            status: params.resumedStatus || 'pause',
+          },
+        })
+      )
+    );
+  }
+
   private static normalizeMediaItems(items: Array<any>): Array<{ url: string; mimeType?: string; sizeBytes?: number; uploadedAt?: Date }> {
     return (items || []).map(item =>
       typeof item === 'string' ? { url: item } : item
@@ -768,7 +823,7 @@ export class ProjectController {
         verifiedOnly,
         search,
         keyword, // Frontend sends keyword instead of search
-        sort = '-createdAt',
+        sort = 'ranking',
         page = 1,
         limit = 20,
       } = req.query;
@@ -808,13 +863,153 @@ export class ProjectController {
       }
 
       const skip = (Number(page) - 1) * Number(limit);
+      const now = new Date();
 
-      const projects = await Project.find(query)
-        .sort(sort as string)
-        .limit(Number(limit))
-        .skip(skip)
-        .populate('promoteur', 'organizationName trustScore badges plan')
-        .select('-changesLog -moderationNotes');
+      const sortParam = String(sort || 'ranking');
+      const useRanking = sortParam === 'ranking' || sortParam === '-ranking';
+
+      let projects: any[] = [];
+
+      if (useRanking) {
+        // Weighted ranking score:
+        // 45% trust + 20% recency + 20% boost + 15% engagement.
+        // Engagement = 50% favorites + 30% views + 20% leads (log-normalized).
+        const daysWindow = 90;
+        const lnViewsCap = Math.log(5001);
+        const lnFavoritesCap = Math.log(501);
+        const lnLeadsCap = Math.log(201);
+
+        projects = await Project.aggregate([
+          { $match: query },
+          {
+            $addFields: {
+              _lastActivityAt: { $ifNull: ['$updatedAt', '$createdAt'] },
+              _trustNorm: {
+                $min: [1, { $max: [0, { $divide: [{ $ifNull: ['$trustScore', 0] }, 100] }] }],
+              },
+              _daysSinceActivity: {
+                $divide: [{ $subtract: [now, { $ifNull: ['$updatedAt', '$createdAt'] }] }, 1000 * 60 * 60 * 24],
+              },
+              _activeBoosts: {
+                $filter: {
+                  input: { $ifNull: ['$boosts', []] },
+                  as: 'b',
+                  cond: {
+                    $and: [
+                      { $eq: ['$$b.status', 'active'] },
+                      { $lte: ['$$b.startDate', now] },
+                      { $gte: ['$$b.endDate', now] },
+                    ],
+                  },
+                },
+              },
+              _viewsNorm: {
+                $min: [
+                  1,
+                  { $divide: [{ $ln: { $add: [{ $ifNull: ['$views', 0] }, 1] } }, lnViewsCap] },
+                ],
+              },
+              _favoritesNorm: {
+                $min: [
+                  1,
+                  { $divide: [{ $ln: { $add: [{ $ifNull: ['$favorites', 0] }, 1] } }, lnFavoritesCap] },
+                ],
+              },
+              _leadsNorm: {
+                $min: [
+                  1,
+                  { $divide: [{ $ln: { $add: [{ $ifNull: ['$totalLeads', 0] }, 1] } }, lnLeadsCap] },
+                ],
+              },
+            },
+          },
+          {
+            $addFields: {
+              _recencyScore: {
+                $max: [0, { $subtract: [1, { $divide: ['$_daysSinceActivity', daysWindow] }] }],
+              },
+              _boostRaw: {
+                $reduce: {
+                  input: '$_activeBoosts',
+                  initialValue: 0,
+                  in: {
+                    $add: [
+                      '$$value',
+                      {
+                        $switch: {
+                          branches: [
+                            { case: { $eq: ['$$this.type', 'enterprise'] }, then: 1.0 },
+                            { case: { $eq: ['$$this.type', 'premium'] }, then: 0.7 },
+                            { case: { $eq: ['$$this.type', 'basic'] }, then: 0.45 },
+                            { case: { $eq: ['$$this.type', 'custom'] }, then: 0.55 },
+                          ],
+                          default: 0.3,
+                        },
+                      },
+                    ],
+                  },
+                },
+              },
+              _engagementScore: {
+                $add: [
+                  { $multiply: ['$_favoritesNorm', 0.5] },
+                  { $multiply: ['$_viewsNorm', 0.3] },
+                  { $multiply: ['$_leadsNorm', 0.2] },
+                ],
+              },
+            },
+          },
+          {
+            $addFields: {
+              _boostWeight: { $min: [1, '$_boostRaw'] },
+              rankingScore: {
+                $add: [
+                  { $multiply: ['$_trustNorm', 0.45] },
+                  { $multiply: ['$_recencyScore', 0.2] },
+                  { $multiply: ['$_boostWeight', 0.2] },
+                  { $multiply: ['$_engagementScore', 0.15] },
+                ],
+              },
+            },
+          },
+          { $sort: { rankingScore: -1, trustScore: -1, createdAt: -1 } },
+          { $skip: skip },
+          { $limit: Number(limit) },
+          {
+            $lookup: {
+              from: 'promoteurs',
+              localField: 'promoteur',
+              foreignField: '_id',
+              as: 'promoteur',
+            },
+          },
+          { $unwind: { path: '$promoteur', preserveNullAndEmptyArrays: true } },
+          {
+            $project: {
+              changesLog: 0,
+              moderationNotes: 0,
+              _lastActivityAt: 0,
+              _trustNorm: 0,
+              _daysSinceActivity: 0,
+              _activeBoosts: 0,
+              _viewsNorm: 0,
+              _favoritesNorm: 0,
+              _leadsNorm: 0,
+              _recencyScore: 0,
+              _boostRaw: 0,
+              _engagementScore: 0,
+              _boostWeight: 0,
+            },
+          },
+        ]);
+      } else {
+        projects = await Project.find(query)
+          .sort(sortParam)
+          .limit(Number(limit))
+          .skip(skip)
+          .populate('promoteur', 'organizationName trustScore badges plan logo')
+          .select('-changesLog -moderationNotes');
+      }
 
       const total = await Project.countDocuments(query);
 
@@ -852,7 +1047,7 @@ export class ProjectController {
         .sort(sort as string)
         .limit(Number(limit))
         .skip(skip)
-        .populate('promoteur', 'organizationName trustScore badges plan')
+        .populate('promoteur', 'organizationName trustScore badges plan logo')
         .select('-changesLog -moderationNotes');
 
       const total = await Project.countDocuments(query);
@@ -893,7 +1088,7 @@ export class ProjectController {
         .sort(sort as string)
         .limit(Number(limit))
         .skip(skip)
-        .populate('promoteur', 'organizationName trustScore badges plan')
+        .populate('promoteur', 'organizationName trustScore badges plan logo')
         .select('-changesLog -moderationNotes');
 
       const total = await Project.countDocuments(query);
@@ -935,8 +1130,15 @@ export class ProjectController {
       project.views += 1;
       await project.save();
 
-      // Populate related data - populate complete promoteur info
-      await project.populate('promoteur', '-password -refreshTokens');
+      // Populate related data - populate complete promoteur info with user details
+      await project.populate({
+        path: 'promoteur',
+        select: '-password -refreshTokens',
+        populate: {
+          path: 'user',
+          select: 'firstName lastName email phone avatar'
+        }
+      });
 
       // Fetch documents for this project separately
       const documents = await Document.find({ project: project._id })
@@ -1437,6 +1639,7 @@ export class ProjectController {
         return res.status(400).json({ message: 'Cannot pause completed or archived projects' });
       }
 
+      const oldStatus = project.status;
       project.status = 'pause';
       project.pauseInfo = {
         reason,
@@ -1449,7 +1652,7 @@ export class ProjectController {
       // Add to change log
       project.changesLog.push({
         field: 'status',
-        oldValue: project.status,
+        oldValue: oldStatus,
         newValue: 'pause',
         reason: `Project paused: ${description}`,
         changedBy: req.user!.id as any,
@@ -1458,7 +1661,11 @@ export class ProjectController {
 
       await project.save();
 
-      // TODO: Notify leads/favorites
+      await ProjectController.notifyProjectCriticalStatusChange({
+        projectId: project._id.toString(),
+        projectTitle: project.title,
+        status: 'pause',
+      });
 
       await AuditLogService.logFromRequest(
         req,
@@ -1500,6 +1707,17 @@ export class ProjectController {
         return res.status(400).json({ message: 'Project is not paused' });
       }
 
+      const allowedResumeStatuses = new Set([
+        'pre-commercialisation',
+        'en-construction',
+        'gros-oeuvre',
+        'livre',
+        'suspended',
+      ]);
+      if (!newStatus || !allowedResumeStatuses.has(newStatus)) {
+        return res.status(400).json({ message: 'Invalid newStatus value' });
+      }
+
       const oldStatus = project.status;
       project.status = newStatus;
       project.pauseInfo = undefined; // Clear pause info
@@ -1516,7 +1734,12 @@ export class ProjectController {
 
       await project.save();
 
-      // TODO: Notify leads/favorites
+      await ProjectController.notifyProjectCriticalStatusChange({
+        projectId: project._id.toString(),
+        projectTitle: project.title,
+        status: 'resume',
+        resumedStatus: newStatus,
+      });
 
       await AuditLogService.logFromRequest(
         req,

@@ -2,6 +2,7 @@ import { Response } from 'express';
 import { AuthRequest } from '../middlewares/auth';
 import ABTest, { IVariant } from '../models/ABTest';
 import Project from '../models/Project';
+import Promoteur from '../models/Promoteur';
 import mongoose from 'mongoose';
 
 export class ABTestController {
@@ -108,6 +109,55 @@ export class ABTestController {
       });
     } catch (error: any) {
       console.error('Erreur récupération tests A/B:', error);
+      res.status(500).json({
+        message: 'Erreur lors de la récupération des tests',
+        error: error.message,
+      });
+    }
+  }
+
+  /**
+   * Admin: récupérer tous les tests A/B (tous promoteurs)
+   */
+  static async getAllForAdmin(req: AuthRequest, res: Response) {
+    try {
+      const { status, promoteurId } = req.query;
+
+      const filter: any = {};
+      if (status && ['active', 'paused', 'completed'].includes(status as string)) {
+        filter.status = status;
+      }
+      if (promoteurId) {
+        filter.promoteurId = promoteurId;
+      }
+
+      const tests = await ABTest.find(filter)
+        .sort({ startDate: -1 })
+        .lean();
+
+      const userIds = [...new Set(tests.map((t: any) => t.promoteurId).filter(Boolean))];
+      const promoteurs = await Promoteur.find({ user: { $in: userIds } })
+        .select('organizationName user')
+        .lean();
+      const promoteurMap = Object.fromEntries(
+        promoteurs.map((p: any) => [p.user?.toString(), p])
+      );
+
+      const testsWithStats = tests.map((test: any) => {
+        const promo = promoteurMap[test.promoteurId?.toString()];
+        return {
+          ...test,
+          promoteurName: promo?.organizationName || '—',
+          stats: calculateTestStats(test),
+        };
+      });
+
+      res.json({
+        tests: testsWithStats,
+        total: tests.length,
+      });
+    } catch (error: any) {
+      console.error('Erreur récupération tests A/B admin:', error);
       res.status(500).json({
         message: 'Erreur lors de la récupération des tests',
         error: error.message,

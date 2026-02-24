@@ -1,0 +1,10 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const crmController_1 = require("../controllers/crmController");
+const auth_1 = require("../middlewares/auth");
+const roles_1 = require("../config/roles");
+const router = (0, express_1.Router)();
+router.get('/config', auth_1.authenticateJWT, (0, auth_1.authorizeRoles)(roles_1.Role.PROMOTEUR, roles_1.Role.ADMIN), crmController_1.CRMController.getConfig);
+router.put('/config', auth_1.authenticateJWT, (0, auth_1.authorizeRoles)(roles_1.Role.PROMOTEUR, roles_1.Role.ADMIN), crmController_1.CRMController.updateConfig);
+exports.default = router;

@@ -1,6 +1,9 @@
 import request from 'supertest';
 import app from '../../src/app';
 import Project from '../../src/models/Project';
+import Favorite from '../../src/models/Favorite';
+import Lead from '../../src/models/Lead';
+import Notification from '../../src/models/Notification';
 import {
   createTestPromoteur,
   createVerifiedPromoteur,
@@ -337,6 +340,132 @@ describe('Project Controller', () => {
         .get(`/api/projects/${project._id}/team`);
 
       expect([200, 404]).toContain(res.status);
+    });
+  });
+
+  describe('PATCH /api/projects/:id/pause and /resume', () => {
+    it('should notify unique followers/leads on pause and resume', async () => {
+      const { token, promoteur, user: promoteurUser } = await createTestPromoteur(randomEmail());
+      const project = await createTestProject(promoteur, {
+        publicationStatus: 'published',
+        status: 'en-construction',
+      });
+
+      const { user: userBoth } = await createTestUser(randomEmail(), 'pass1234', [Role.USER]);
+      const { user: userLeadOnly } = await createTestUser(randomEmail(), 'pass1234', [Role.USER]);
+      const { user: userFavoriteDisabled } = await createTestUser(randomEmail(), 'pass1234', [Role.USER]);
+
+      await Favorite.create({
+        user: userBoth._id,
+        project: project._id,
+        alertOnStatusChange: true,
+      });
+
+      await Favorite.create({
+        user: userFavoriteDisabled._id,
+        project: project._id,
+        alertOnStatusChange: false,
+      });
+
+      await Lead.create({
+        project: project._id,
+        promoteur: promoteur._id,
+        client: userBoth._id,
+        firstName: 'Client',
+        lastName: 'Both',
+        email: 'both-client@test.com',
+        phone: '+2250700000001',
+        budget: 50000000,
+        financingType: 'cash',
+        timeframe: '6-months',
+        score: 'A',
+        scoreDetails: {
+          budgetMatch: 90,
+          timelineMatch: 80,
+          engagementLevel: 85,
+          profileCompleteness: 95,
+        },
+        status: 'nouveau',
+        pipeline: [{
+          status: 'nouveau',
+          changedAt: new Date(),
+          changedBy: promoteurUser._id,
+        }],
+        contactMethod: 'email',
+        initialMessage: 'Interesse par ce projet',
+      });
+
+      await Lead.create({
+        project: project._id,
+        promoteur: promoteur._id,
+        client: userLeadOnly._id,
+        firstName: 'Client',
+        lastName: 'LeadOnly',
+        email: 'lead-only@test.com',
+        phone: '+2250700000002',
+        budget: 45000000,
+        financingType: 'mortgage',
+        timeframe: '1-year',
+        score: 'B',
+        scoreDetails: {
+          budgetMatch: 75,
+          timelineMatch: 70,
+          engagementLevel: 80,
+          profileCompleteness: 90,
+        },
+        status: 'nouveau',
+        pipeline: [{
+          status: 'nouveau',
+          changedAt: new Date(),
+          changedBy: promoteurUser._id,
+        }],
+        contactMethod: 'phone',
+        initialMessage: 'Je souhaite en savoir plus',
+      });
+
+      const pauseRes = await request(app)
+        .patch(`/api/projects/${project._id}/pause`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({
+          reason: 'administratif',
+          description: 'Arret temporaire pour formalites',
+        });
+
+      expect(pauseRes.status).toBe(200);
+      expect(pauseRes.body.project?.status).toBe('pause');
+
+      const pauseNotifications = await Notification.find({
+        relatedProject: project._id,
+        type: 'project',
+        title: 'Projet temporairement en pause',
+      });
+
+      expect(pauseNotifications).toHaveLength(2);
+      const pauseRecipients = new Set(pauseNotifications.map((n) => n.recipient.toString()));
+      expect(pauseRecipients.has(userBoth._id.toString())).toBe(true);
+      expect(pauseRecipients.has(userLeadOnly._id.toString())).toBe(true);
+      expect(pauseRecipients.has(userFavoriteDisabled._id.toString())).toBe(false);
+
+      const resumeRes = await request(app)
+        .patch(`/api/projects/${project._id}/resume`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ newStatus: 'en-construction' });
+
+      expect(resumeRes.status).toBe(200);
+      expect(resumeRes.body.project?.status).toBe('en-construction');
+
+      const resumeNotifications = await Notification.find({
+        relatedProject: project._id,
+        type: 'project',
+        title: 'Projet repris',
+      });
+
+      expect(resumeNotifications).toHaveLength(2);
+      const resumeRecipients = new Set(resumeNotifications.map((n) => n.recipient.toString()));
+      expect(resumeRecipients.has(userBoth._id.toString())).toBe(true);
+      expect(resumeRecipients.has(userLeadOnly._id.toString())).toBe(true);
+      expect(resumeRecipients.has(userFavoriteDisabled._id.toString())).toBe(false);
+      expect(resumeNotifications.every((n) => n.priority === 'high')).toBe(true);
     });
   });
 });

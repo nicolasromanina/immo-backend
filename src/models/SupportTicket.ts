@@ -2,13 +2,21 @@ import mongoose, { Schema, Document } from 'mongoose';
 
 export interface ISupportTicket extends Document {
   ticketNumber: string;
-  user: mongoose.Types.ObjectId;
+  user?: mongoose.Types.ObjectId;
 
   // Ticket details
-  category: 'technical' | 'account' | 'billing' | 'feature-request' | 'bug-report' | 'other';
+  category: 'technical' | 'account' | 'billing' | 'feature-request' | 'bug-report' | 'appointment_request' | 'other';
   subject: string;
   description: string;
   priority: 'low' | 'medium' | 'high' | 'urgent';
+  
+  // Public submission fields (for unauthenticated requests)
+  submitterEmail?: string;
+  submitterPhone?: string;
+  submitterName?: string;
+  appointmentDate?: string;
+  appointmentTime?: string;
+  projectId?: string;
 
   // Status
   status: 'open' | 'in-progress' | 'waiting-user' | 'waiting-admin' | 'resolved' | 'closed';
@@ -45,11 +53,11 @@ export interface ISupportTicket extends Document {
 
 const SupportTicketSchema: Schema = new Schema({
   ticketNumber: { type: String, required: true, unique: true },
-  user: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
+  user: { type: Schema.Types.ObjectId, ref: 'User', index: true },
 
   category: {
     type: String,
-    enum: ['technical', 'account', 'billing', 'feature-request', 'bug-report', 'other'],
+    enum: ['technical', 'account', 'billing', 'feature-request', 'bug-report', 'appointment_request', 'other'],
     required: true,
     index: true,
   },
@@ -90,13 +98,21 @@ const SupportTicketSchema: Schema = new Schema({
   },
 
   tags: [{ type: String }],
+  
+  // Public submission fields (for unauthenticated appointment requests)
+  submitterEmail: { type: String },
+  submitterPhone: { type: String },
+  submitterName: { type: String },
+  appointmentDate: { type: String },
+  appointmentTime: { type: String },
+  projectId: { type: String },
 }, { timestamps: true });
 
 SupportTicketSchema.index({ status: 1, priority: 1 });
 SupportTicketSchema.index({ ticketNumber: 1 });
 SupportTicketSchema.index({ assignedTo: 1, status: 1 });
 
-SupportTicketSchema.pre('save', async function (next) {
+SupportTicketSchema.pre('validate', async function (next) {
   if (!this.ticketNumber) {
     const count = await mongoose.model('SupportTicket').countDocuments();
     this.ticketNumber = `TK-${new Date().getFullYear()}-${String(count + 1).padStart(5, '0')}`;

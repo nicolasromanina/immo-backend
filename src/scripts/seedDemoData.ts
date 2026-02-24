@@ -53,8 +53,7 @@ async function seedDemoData() {
       {
         promoteur: promoteur._id,
         title: 'Immeuble Lorem Horizon',
-        description:
-          'Nunc vulputate libero et velit interdum, ac aliquet odio mattis. Class aptent taciti sociosqu ad litora torquent per conubia nostra, per inceptos himenaeos',
+        description: 'Immeuble résidentiel luxe avec vue panoramique',
         location: 'Proche centre ville Haute standing',
         city: 'Paris',
         country: 'France',
@@ -64,15 +63,13 @@ async function seedDemoData() {
         unitCount: 15,
         status: 'en-construction',
         publicationStatus: 'published',
-        description: 'Immeuble résidentiel luxe avec vue panoramique',
         trustScore: 92,
         coverImage: 'https://images.unsplash.com/photo-1545324418-cc1b1a7a3c1d?w=800&q=80',
       },
       {
         promoteur: promoteur._id,
         title: 'Residence B',
-        description:
-          'Nunc vulputate libero et velit interdum, ac aliquet odio mattis. Class aptent taciti sociosqu ad litora torquent per conubia nostra, per inceptos himenaeos',
+        description: 'Résidence de standing achevée avec services premium',
         location: 'Proche centre ville Haute standing',
         city: 'Lyon',
         country: 'France',
@@ -82,15 +79,13 @@ async function seedDemoData() {
         unitCount: 20,
         status: 'livré',
         publicationStatus: 'published',
-        description: 'Résidence de standing achevée avec services premium',
         trustScore: 88,
         coverImage: 'https://images.unsplash.com/photo-1564013799919-ab600027ffc6?w=800&q=80',
       },
       {
         promoteur: promoteur._id,
         title: 'Immeuble Libero',
-        description:
-          'Nunc vulputate libero et velit interdum, ac aliquet odio mattis. Class aptent taciti sociosqu ad litora torquent per conubia nostra, per inceptos himenaeos',
+        description: 'Immeuble intergénérationnel avec espaces communs',
         location: 'Proche centre ville Haute standing',
         city: 'Marseille',
         country: 'France',
@@ -100,7 +95,6 @@ async function seedDemoData() {
         unitCount: 12,
         status: 'en-construction',
         publicationStatus: 'published',
-        description: 'Immeuble intergénérationnel avec espaces communs',
         trustScore: 85,
         coverImage: 'https://images.unsplash.com/photo-1460317442991-0ec5d0aec359?w=800&q=80',
       },

@@ -7,7 +7,12 @@ export interface IProject extends Document {
   title: string;
   slug: string;
   description: string;
+  shortDescription?: string; // courte description du projet (max 150 caractères)
+  projectOverview?: string; // aperçu détaillé du projet
+  locationDescription?: string; // description de la localisation
+  progressDescription?: string; // description de l'état d'avancement
   projectType: 'villa' | 'immeuble';
+  availability?: string; // disponibilité du projet
 
   typeDetails?: {
     villa?: {
@@ -167,7 +172,12 @@ const ProjectSchema: Schema = new Schema({
   title: { type: String, required: true, trim: true },
   slug: { type: String, required: true, unique: true, lowercase: true },
   description: { type: String, required: true },
+  shortDescription: { type: String, maxlength: 150 },
+  projectOverview: { type: String },
+  locationDescription: { type: String },
+  progressDescription: { type: String },
   projectType: { type: String, enum: ['villa', 'immeuble'], required: true },
+  availability: { type: String },
 
   typeDetails: {
     villa: {

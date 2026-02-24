@@ -18,6 +18,7 @@ import { AdvancedTrustScoreService } from '../services/AdvancedTrustScoreService
 import { NotificationService } from '../services/NotificationService';
 import { BadgeService } from '../services/BadgeService';
 import { DocumentExpiryService } from '../services/DocumentExpiryService';
+import { OnboardingService } from '../services/OnboardingService';
 import { sendOnboardingReminderForPromoteur } from '../jobs/onboardingReminderJob';
 
 export class AdminController {
@@ -347,6 +348,8 @@ export class AdminController {
       } else {
         promoteur.kycStatus = 'submitted';
       }
+      // Recalculate onboarding progress
+      OnboardingService.recalculate(promoteur);
       await promoteur.save();
       await AuditLogService.logFromRequest(
         req,
@@ -359,6 +362,55 @@ export class AdminController {
       res.json({ promoteur });
     } catch (error) {
       console.error('Error verifying KYC document:', error);
+      res.status(500).json({ message: 'Server error' });
+    }
+  }
+
+  /**
+   * Admin: approve or reject company documents
+   */
+  static async approveCompanyDocument(req: AuthRequest, res: Response) {
+    try {
+      const { promoteurId, docId } = req.params;
+      const { approved, rejectionReason } = req.body;
+
+      const promoteur = await Promoteur.findById(promoteurId).populate('user');
+      if (!promoteur) {
+        return res.status(404).json({ message: 'Promoteur not found' });
+      }
+
+      const doc = promoteur.companyDocuments.find((d: any) => (d._id?.toString() || d.id?.toString()) === docId);
+      if (!doc) {
+        return res.status(404).json({ message: 'Company document not found' });
+      }
+
+      if (approved) {
+        doc.status = 'approved';
+        doc.reviewedBy = new mongoose.Types.ObjectId(req.user!.id);
+        doc.reviewedAt = new Date();
+      } else {
+        doc.status = 'rejected';
+        doc.rejectionReason = rejectionReason || '';
+        doc.reviewedBy = new mongoose.Types.ObjectId(req.user!.id);
+        doc.reviewedAt = new Date();
+      }
+
+      // Recalculate onboarding progress
+      OnboardingService.recalculate(promoteur);
+      await promoteur.save();
+
+      await AuditLogService.logFromRequest(
+        req,
+        approved ? 'approve_company_doc' : 'reject_company_doc',
+        'moderation',
+        `${approved ? 'Approved' : 'Rejected'} company document for ${promoteur.organizationName}`,
+        'Promoteur',
+        promoteurId
+      );
+
+      res.json({ promoteur });
+    } catch (error) {
+      console.error('Error approving company document:', error);
       res.status(500).json({ message: 'Server error' });
     }
   }
@@ -1487,6 +1539,8 @@ export class AdminController {
         await TrustScoreService.updateAllScores(promoteurId);
       }
 
+      // Recalculate onboarding progress
+      OnboardingService.recalculate(promoteur);
       await promoteur.save();
 
       await AuditLogService.logFromRequest(
@@ -1501,6 +1555,79 @@ export class AdminController {
       res.json({ promoteur });
     } catch (error) {
       console.error('Error approving financial proof document:', error);
+      res.status(500).json({ message: 'Server error' });
+    }
+  }
+
+  /**
+   * Get unverified project documents
+   */
+  static async getUnverifiedProjectDocuments(req: AuthRequest, res: Response) {
+    try {
+      const { page = 1, limit = 20 } = req.query;
+      const skip = (Number(page) - 1) * Number(limit);
+
+      // Get unverified documents for projects
+      const documents = await Document.find({ verified: false })
+        .populate('project', 'title city projectType publicationStatus')
+        .populate('promoteur', 'organizationName')
+        .populate('uploadedBy', 'name email')
+        .sort({ uploadedAt: -1 })
+        .skip(skip)
+        .limit(Number(limit));
+
+      const total = await Document.countDocuments({ verified: false });
+
+      res.json({
+        documents,
+        pagination: {
+          total,
+          page: Number(page),
+          pages: Math.ceil(total / Number(limit)),
+          limit: Number(limit),
+        },
+      });
+    } catch (error) {
+      console.error('Error fetching unverified project documents:', error);
+      res.status(500).json({ message: 'Server error' });
+    }
+  }
+
+  /**
+   * Verify/approve or reject a project document
+   */
+  static async verifyProjectDocument(req: AuthRequest, res: Response) {
+    try {
+      const { documentId } = req.params;
+      const { verified, verificationNotes } = req.body;
+
+      const document = await Document.findById(documentId)
+        .populate('project')
+        .populate('promoteur');
+
+      if (!document) {
+        return res.status(404).json({ message: 'Document not found' });
+      }
+
+      document.verified = verified;
+      document.verifiedBy = req.user!.id as any;
+      document.verifiedAt = new Date();
+      document.verificationNotes = verificationNotes;
+
+      await document.save();
+
+      await AuditLogService.logFromRequest(
+        req,
+        verified ? 'verify_project_document' : 'reject_project_document',
+        'moderation',
+        `${verified ? 'Verified' : 'Rejected'} document "${document.name}" for project`,
+        'Document',
+        documentId
+      );
+
+      res.json({ document });
+    } catch (error) {
+      console.error('Error verifying project document:', error);
       res.status(500).json({ message: 'Server error' });
     }
   }

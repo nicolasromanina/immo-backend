@@ -23,6 +23,18 @@ export interface IPromoteur extends Document {
   }>;
   agrementNumber?: string;
   hasAgrement: boolean;
+
+  // Company Documents
+  companyDocuments: Array<{
+    type: string;
+    url: string;
+    name: string;
+    status: 'pending' | 'approved' | 'rejected';
+    uploadedAt: Date;
+    reviewedBy?: mongoose.Types.ObjectId;
+    reviewedAt?: Date;
+    rejectionReason?: string;
+  }>;
   
   // Onboarding
   onboardingCompleted: boolean;
@@ -151,6 +163,17 @@ const PromoteurSchema: Schema = new Schema({
   }],
   agrementNumber: { type: String },
   hasAgrement: { type: Boolean, default: false },
+
+  companyDocuments: [{
+    type: { type: String, required: true },
+    url: { type: String, required: true },
+    name: { type: String, required: true },
+    status: { type: String, enum: ['pending', 'approved', 'rejected'], default: 'pending' },
+    uploadedAt: { type: Date, default: Date.now },
+    reviewedBy: { type: Schema.Types.ObjectId, ref: 'User' },
+    reviewedAt: { type: Date },
+    rejectionReason: { type: String, default: '' },
+  }],
   
   onboardingCompleted: { type: Boolean, default: false },
   onboardingProgress: { type: Number, default: 0, min: 0, max: 100 },

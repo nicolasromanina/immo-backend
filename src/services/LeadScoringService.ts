@@ -119,9 +119,10 @@ export class LeadScoringService {
     if (!project) throw new Error('Project not found');
 
     // Calculate message quality
+    const normalizedMessage = (params.initialMessage || '').trim();
     let messageQuality = 'short';
-    if (params.initialMessage.length > 200) messageQuality = 'detailed';
-    else if (params.initialMessage.length > 50) messageQuality = 'standard';
+    if (normalizedMessage.length > 200) messageQuality = 'detailed';
+    else if (normalizedMessage.length > 50) messageQuality = 'standard';
 
     // Calculate score
     const scoring = this.calculateScore({
@@ -155,7 +156,7 @@ export class LeadScoringService {
         changedBy: params.promoteurId,
       }],
       contactMethod: params.contactMethod,
-      initialMessage: params.initialMessage,
+      initialMessage: normalizedMessage || 'Demande de contact',
       source: params.source || 'website',
       isSerious: true,
       responseSLA: true,

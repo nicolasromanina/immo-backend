@@ -23,11 +23,10 @@ export class BrochureService {
       throw new Error('Project not found');
     }
 
-    // Check for existing request from same email
     const existingRequest = await BrochureRequest.findOne({
       project: data.projectId,
       email: data.email,
-      createdAt: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) }, // Last 24 hours
+      createdAt: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
     });
 
     if (existingRequest) {
@@ -48,7 +47,6 @@ export class BrochureService {
 
     await request.save();
 
-    // Notify promoteur
     await NotificationService.create({
       recipient: project.promoteur.toString(),
       type: 'lead',
@@ -59,11 +57,14 @@ export class BrochureService {
       data: { requestId: request._id, projectId: data.projectId },
     });
 
-    // Auto-send if brochure is available
     await this.autoSendBrochure(request._id.toString());
 
-    // Create or update lead
-    await this.createOrUpdateLead(data, project);
+    // Best effort: do not fail brochure request if lead creation fails
+    try {
+      await this.createOrUpdateLead(data, project);
+    } catch (error) {
+      console.error('Lead creation from brochure request failed:', error);
+    }
 
     return request;
   }
@@ -76,13 +77,9 @@ export class BrochureService {
     if (!request) return;
 
     const project = request.project as any;
-
-    // Check if project has a brochure document
-    // In production, would check for specific brochure document
     const hasBrochure = project.media?.renderings?.length > 0;
 
     if (hasBrochure) {
-      // Generate download link (in production, would be a secure signed URL)
       const downloadLink = `/api/brochures/${project._id}/download?token=${this.generateToken()}`;
 
       request.status = 'sent';
@@ -90,12 +87,11 @@ export class BrochureService {
       request.downloadLink = downloadLink;
       await request.save();
 
-      // Send via email
       await NotificationService.create({
         recipient: request.email,
         type: 'system',
         title: `Brochure - ${project.title}`,
-        message: `Voici le lien pour télécharger la brochure: ${downloadLink}`,
+        message: `Voici le lien pour telecharger la brochure: ${downloadLink}`,
         priority: 'medium',
         channels: { email: true },
       });
@@ -106,7 +102,7 @@ export class BrochureService {
    * Generate secure token
    */
   private static generateToken(): string {
-    return Math.random().toString(36).substring(2, 15) + 
+    return Math.random().toString(36).substring(2, 15) +
            Math.random().toString(36).substring(2, 15);
   }
 
@@ -114,54 +110,66 @@ export class BrochureService {
    * Create or update lead from brochure request
    */
   private static async createOrUpdateLead(data: any, project: any) {
+    let actorUserId = data.clientId;
+    if (!actorUserId) {
+      const promoteur = await Promoteur.findById(project.promoteur).select('user');
+      actorUserId = promoteur?.user?.toString();
+    }
+
     const existingLead = await Lead.findOne({
       project: project._id,
       email: data.email,
     });
 
-    if (!existingLead) {
-      const lead = new Lead({
-        project: project._id,
-        promoteur: project.promoteur,
-        client: data.clientId,
-        firstName: data.firstName,
-        lastName: data.lastName,
-        email: data.email,
-        phone: data.phone || '',
-        status: 'nouveau',
-        source: data.source || 'website',
-        score: 'C', // Default score for brochure requests
-        scoreDetails: {
-          budgetMatch: 50,
-          timelineMatch: 50,
-          engagementLevel: 30,
-          profileCompleteness: 50,
-        },
-        initialMessage: 'Demande de brochure',
-        notes: [{
-          content: 'Lead créé via demande de brochure',
-          addedAt: new Date(),
-          isPrivate: false,
-        }],
-        pipeline: [{
-          status: 'nouveau',
-          changedAt: new Date(),
-          notes: 'Demande de brochure',
-        }],
-      });
-
-      await lead.save();
-
-      // Update project stats
-      await Project.findByIdAndUpdate(project._id, {
-        $inc: { totalLeads: 1 },
-      });
-
-      // Update promoteur stats
-      await Promoteur.findByIdAndUpdate(project.promoteur, {
-        $inc: { totalLeadsReceived: 1 },
-      });
+    if (existingLead) {
+      return;
     }
+
+    const lead = new Lead({
+      project: project._id,
+      promoteur: project.promoteur,
+      client: data.clientId || undefined,
+      firstName: data.firstName,
+      lastName: data.lastName,
+      email: data.email,
+      phone: data.phone || '',
+      budget: 0,
+      financingType: 'unknown',
+      timeframe: 'flexible',
+      contactMethod: 'email',
+      status: 'nouveau',
+      source: data.source || 'website',
+      score: 'C',
+      scoreDetails: {
+        budgetMatch: 50,
+        timelineMatch: 50,
+        engagementLevel: 30,
+        profileCompleteness: 50,
+      },
+      initialMessage: 'Demande de brochure',
+      notes: actorUserId ? [{
+        content: 'Lead cree via demande de brochure',
+        addedBy: actorUserId,
+        addedAt: new Date(),
+        isPrivate: false,
+      }] : [],
+      pipeline: actorUserId ? [{
+        status: 'nouveau',
+        changedAt: new Date(),
+        changedBy: actorUserId,
+        notes: 'Demande de brochure',
+      }] : [],
+    });
+
+    await lead.save();
+
+    await Project.findByIdAndUpdate(project._id, {
+      $inc: { totalLeads: 1 },
+    });
+
+    await Promoteur.findByIdAndUpdate(project.promoteur, {
+      $inc: { totalLeadsReceived: 1 },
+    });
   }
 
   /**
@@ -196,8 +204,7 @@ export class BrochureService {
     }
 
     const project = request.project as any;
-    
-    // In production, would use WhatsApp Business API
+
     await WhatsAppService.sendTemplateMessage({
       to: request.phone,
       templateSlug: 'brochure_delivery',
@@ -218,8 +225,7 @@ export class BrochureService {
    * Get brochure requests for a project
    */
   static async getProjectRequests(projectId: string) {
-    return BrochureRequest.find({ project: projectId })
-      .sort({ createdAt: -1 });
+    return BrochureRequest.find({ project: projectId }).sort({ createdAt: -1 });
   }
 
   /**
@@ -233,7 +239,7 @@ export class BrochureService {
     limit?: number;
   }) {
     const query: any = { promoteur: promoteurId };
-    
+
     if (filters?.status) query.status = filters.status;
     if (filters?.startDate || filters?.endDate) {
       query.createdAt = {};
@@ -296,7 +302,7 @@ export class BrochureService {
     }
 
     const { total, sent, downloaded, emailOpened } = stats[0];
-    
+
     return {
       total,
       sent,

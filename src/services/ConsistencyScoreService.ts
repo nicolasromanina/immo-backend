@@ -50,7 +50,7 @@ export class ConsistencyScoreService {
 
     return {
       projectId: project._id.toString(),
-      projectName: (project as any).nom || 'N/A',
+      projectName: (project as any).nom || (project as any).title || (project as any).name || 'Projet',
       overallScore,
       details: {
         priceStability,

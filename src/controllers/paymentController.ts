@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import Stripe from 'stripe';
+import jwt from 'jsonwebtoken';
 import { stripe, SUBSCRIPTION_PRICES, BOOST_PRICES } from '../config/stripe';
 import Subscription from '../models/Subscription';
 import Payment from '../models/Payment';
@@ -7,6 +8,7 @@ import Project from '../models/Project';
 import Promoteur from '../models/Promoteur';
 import User from '../models/User';
 import { NotificationService } from '../services/NotificationService';
+import { getJwtSecret } from '../config/jwt';
 // ...existing code...
 // Exporter explicitement les fonctions publiques à la toute fin du fichier
 // (après leur définition effective)
@@ -831,6 +833,11 @@ async function handleSubscriptionDeleted(subscription: any) {
  */
 export const getTokenFromBoostSession = async (req: Request, res: Response) => {
   try {
+    const authUserId = (req as any).user?.id?.toString();
+    if (!authUserId) {
+      return res.status(401).json({ message: 'Non authentifie' });
+    }
+
     const sessionId = req.query.session_id as string;
 
     if (!sessionId) {
@@ -857,11 +864,19 @@ export const getTokenFromBoostSession = async (req: Request, res: Response) => {
       });
     }
 
+    // Vérifier que c'est une session boost valide
+    if (session.mode !== 'payment' || session.metadata?.paymentType !== 'boost') {
+      return res.status(400).json({ message: 'Session invalide (pas un boost)' });
+    }
+
     // Récupérer l'user ID depuis les métadatas
     const userId = session.metadata?.userId;
     if (!userId) {
       console.error('[getTokenFromBoostSession] No userId in session metadata');
       return res.status(400).json({ message: 'User ID non trouvé dans la session' });
+    }
+    if (userId.toString() !== authUserId) {
+      return res.status(403).json({ message: 'Session Stripe non autorisee pour cet utilisateur' });
     }
 
     // Récupérer l'utilisateur
@@ -872,15 +887,14 @@ export const getTokenFromBoostSession = async (req: Request, res: Response) => {
     }
 
     // Générer un JWT token
-    const jwt = require('jsonwebtoken');
     const token = jwt.sign(
       { 
         id: user._id.toString(),
         email: user.email,
         roles: user.roles,
       },
-      process.env.JWT_SECRET || 'your-secret-key',
-      { expiresIn: process.env.JWT_EXPIRES_IN || '1d' }
+      getJwtSecret(),
+      { expiresIn: (process.env.JWT_EXPIRES_IN || '1d') as jwt.SignOptions['expiresIn'] }
     );
 
     console.log('[getTokenFromBoostSession] ✅ Token généré pour user:', userId);
@@ -915,6 +929,11 @@ export const getTokenFromBoostSession = async (req: Request, res: Response) => {
  */
 export const verifyBoostSession = async (req: Request, res: Response) => {
   try {
+    const authUserId = (req as any).user?.id?.toString();
+    if (!authUserId) {
+      return res.status(401).json({ message: 'Non authentifie' });
+    }
+
     const sessionId = req.query.session_id as string;
 
     if (!sessionId) {
@@ -946,6 +965,9 @@ export const verifyBoostSession = async (req: Request, res: Response) => {
       return res.status(400).json({ 
         message: 'Session invalide (pas un boost)' 
       });
+    }
+    if (!session.metadata?.userId || session.metadata.userId.toString() !== authUserId) {
+      return res.status(403).json({ message: 'Session Stripe non autorisee pour cet utilisateur' });
     }
 
     // Vérifier qu'un Payment record existe pour cette session
@@ -1091,7 +1113,14 @@ export const getCurrentSubscription = async (req: Request, res: Response) => {
     }).sort({ createdAt: -1 });
     console.log('[getCurrentSubscription] subscription:', subscription);
 
-    res.json({ subscription, promoteur: { plan: promoteur.plan, subscriptionStatus: promoteur.subscriptionStatus } });
+    res.json({
+      subscription,
+      promoteur: {
+        plan: promoteur.plan,
+        subscriptionStatus: promoteur.subscriptionStatus,
+        planChangeRequest: promoteur.planChangeRequest || null,
+      },
+    });
   } catch (error: any) {
     console.error('[getCurrentSubscription] Erreur récupération abonnement:', error);
     res.status(500).json({ message: 'Erreur lors de la récupération', error: error.message });
