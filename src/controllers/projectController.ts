@@ -813,7 +813,7 @@ export class ProjectController {
         .sort(sort as string)
         .limit(Number(limit))
         .skip(skip)
-        .populate('promoteur', 'organizationName trustScore badges plan')
+        .populate('promoteur', 'organizationName trustScore badges plan logo')
         .select('-changesLog -moderationNotes');
 
       const total = await Project.countDocuments(query);
@@ -852,7 +852,7 @@ export class ProjectController {
         .sort(sort as string)
         .limit(Number(limit))
         .skip(skip)
-        .populate('promoteur', 'organizationName trustScore badges plan')
+        .populate('promoteur', 'organizationName trustScore badges plan logo')
         .select('-changesLog -moderationNotes');
 
       const total = await Project.countDocuments(query);
@@ -893,7 +893,7 @@ export class ProjectController {
         .sort(sort as string)
         .limit(Number(limit))
         .skip(skip)
-        .populate('promoteur', 'organizationName trustScore badges plan')
+        .populate('promoteur', 'organizationName trustScore badges plan logo')
         .select('-changesLog -moderationNotes');
 
       const total = await Project.countDocuments(query);
@@ -935,8 +935,15 @@ export class ProjectController {
       project.views += 1;
       await project.save();
 
-      // Populate related data - populate complete promoteur info
-      await project.populate('promoteur', '-password -refreshTokens');
+      // Populate related data - populate complete promoteur info with user details
+      await project.populate({
+        path: 'promoteur',
+        select: '-password -refreshTokens',
+        populate: {
+          path: 'user',
+          select: 'firstName lastName email phone avatar'
+        }
+      });
 
       // Fetch documents for this project separately
       const documents = await Document.find({ project: project._id })

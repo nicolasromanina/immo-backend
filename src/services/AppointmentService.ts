@@ -2,10 +2,69 @@ import Appointment from '../models/Appointment';
 import Availability from '../models/Availability';
 import Lead from '../models/Lead';
 import Project from '../models/Project';
+import SupportTicket from '../models/SupportTicket';
 import { NotificationService } from './NotificationService';
-import mongoose from 'mongoose';
 
 export class AppointmentService {
+  private static buildTicketDate(ticket: any): Date {
+    const date = ticket.appointmentDate || '';
+    const time = ticket.appointmentTime || '00:00';
+    const parsed = new Date(`${date}T${time}:00`);
+    if (!Number.isNaN(parsed.getTime())) {
+      return parsed;
+    }
+    return new Date(ticket.createdAt);
+  }
+
+  private static async getPublicAppointmentRequests(promoteurId: string, from: Date, to: Date) {
+    const projects = await Project.find({ promoteur: promoteurId })
+      .select('_id title')
+      .lean();
+
+    if (!projects.length) {
+      return [];
+    }
+
+    const projectTitleById = new Map(
+      projects.map((project: any) => [project._id.toString(), project.title || 'Projet'])
+    );
+
+    const projectIds = [...projectTitleById.keys()];
+
+    const tickets = await SupportTicket.find({
+      category: 'appointment_request',
+      projectId: { $in: projectIds },
+      status: { $in: ['open', 'in-progress', 'waiting-user', 'waiting-admin'] },
+    })
+      .select('_id ticketNumber submitterName submitterEmail submitterPhone appointmentDate appointmentTime projectId description createdAt')
+      .sort({ createdAt: -1 })
+      .lean();
+
+    return tickets
+      .map((ticket: any) => {
+        const scheduledAt = this.buildTicketDate(ticket);
+        return {
+          _id: ticket._id,
+          ticketNumber: ticket.ticketNumber,
+          scheduledAt,
+          date: scheduledAt,
+          durationMinutes: 30,
+          type: 'phone',
+          status: 'pending',
+          source: 'public-request',
+          clientName: ticket.submitterName || 'Client',
+          leadName: ticket.submitterName || 'Client',
+          leadEmail: ticket.submitterEmail || '',
+          leadPhone: ticket.submitterPhone || '',
+          phone: ticket.submitterPhone || '',
+          projectName: projectTitleById.get(ticket.projectId) || 'Projet',
+          notes: ticket.description || '',
+        };
+      })
+      .filter((item: any) => item.scheduledAt >= from && item.scheduledAt <= to)
+      .sort((a: any, b: any) => a.scheduledAt.getTime() - b.scheduledAt.getTime());
+  }
+
   /**
    * Get available slots for a promoteur
    */
@@ -251,7 +310,7 @@ export class AppointmentService {
     const future = new Date();
     future.setDate(future.getDate() + days);
 
-    return Appointment.find({
+    const appointments = await Appointment.find({
       promoteur: promoteurId,
       scheduledAt: { $gte: now, $lte: future },
       status: { $in: ['requested', 'confirmed'] },
@@ -259,6 +318,30 @@ export class AppointmentService {
       .populate('lead', 'firstName lastName email phone')
       .populate('project', 'title')
       .sort({ scheduledAt: 1 });
+
+    const normalizedAppointments = appointments.map((appointment: any) => {
+      const lead = appointment.lead || {};
+      const leadName = `${lead.firstName || ''} ${lead.lastName || ''}`.trim();
+      return {
+        ...appointment.toObject(),
+        date: appointment.scheduledAt,
+        source: 'appointment',
+        leadName: leadName || 'Client',
+        clientName: leadName || 'Client',
+        leadEmail: lead.email || '',
+        leadPhone: lead.phone || '',
+        phone: lead.phone || '',
+        projectName: appointment.project?.title || '',
+      };
+    });
+
+    const publicRequests = await this.getPublicAppointmentRequests(promoteurId, now, future);
+
+    return [...normalizedAppointments, ...publicRequests].sort((a: any, b: any) => {
+      const aDate = new Date(a.scheduledAt || a.date).getTime();
+      const bDate = new Date(b.scheduledAt || b.date).getTime();
+      return aDate - bDate;
+    });
   }
 
   /**

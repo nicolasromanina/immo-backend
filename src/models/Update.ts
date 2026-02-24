@@ -44,6 +44,10 @@ export interface IUpdate extends Document {
   nextStep: string;
   nextMilestoneDate: Date;
   risksIdentified: string;
+  // Fields synced to project page progress section
+  projectStatus?: 'pre-commercialisation' | 'en-construction' | 'gros-oeuvre' | 'livre' | 'pause' | 'archive' | 'suspended';
+  progressDescription?: string;
+  expectedDeliveryDate?: Date;
   
   // Status
   status: 'draft' | 'scheduled' | 'published';
@@ -118,6 +122,12 @@ const UpdateSchema: Schema = new Schema({
   nextStep: { type: String, required: true },
   nextMilestoneDate: { type: Date, required: true },
   risksIdentified: { type: String, required: true },
+  projectStatus: {
+    type: String,
+    enum: ['pre-commercialisation', 'en-construction', 'gros-oeuvre', 'livre', 'pause', 'archive', 'suspended'],
+  },
+  progressDescription: { type: String },
+  expectedDeliveryDate: { type: Date },
   
   status: { 
     type: String, 

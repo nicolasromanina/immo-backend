@@ -18,6 +18,9 @@ export class LeadController {
    */
   static async createLead(req: AuthRequest, res: Response) {
     try {
+      console.log('[LeadController.createLead] Headers:', req.headers);
+      console.log('[LeadController.createLead] req.user:', req.user);
+      
       const {
         projectId,
         firstName,
@@ -38,10 +41,30 @@ export class LeadController {
         return res.status(404).json({ message: 'Project not found or not available' });
       }
 
+      if (!firstName || !lastName || !email || !phone) {
+        return res.status(400).json({ message: 'Missing required contact fields' });
+      }
+
+      if (!initialMessage || typeof initialMessage !== 'string') {
+        return res.status(400).json({ message: 'initialMessage is required' });
+      }
+
+      if (!timeframe) {
+        return res.status(400).json({ message: 'timeframe is required' });
+      }
+
+      if (!contactMethod) {
+        return res.status(400).json({ message: 'contactMethod is required' });
+      }
+
+      // If user is authenticated, capture their ID as the lead.client
+      const clientId = req.user?.id || undefined;
+      console.log('[LeadController.createLead] Creating lead with clientId:', clientId);
+
       const lead = await LeadScoringService.createLead({
         projectId,
         promoteurId: project.promoteur.toString(),
-        clientId: req.user?.id,
+        clientId,
         firstName,
         lastName,
         email,
@@ -61,29 +84,36 @@ export class LeadController {
         $inc: { totalLeadsReceived: 1 },
       });
 
-      // Get promoteur user for notification
-      const promoteur = await Promoteur.findById(project.promoteur).populate('user');
-      if (promoteur?.user) {
-        await NotificationService.notifyNewLead({
-          promoteurUserId: (promoteur.user as any)._id.toString(),
-          leadId: lead._id.toString(),
-          projectTitle: project.title,
-          leadName: `${firstName} ${lastName}`,
-          leadScore: lead.score,
-        });
-        // Real-time WebSocket notification
-        await RealTimeNotificationService.notifyNewLead(
-          (promoteur.user as any)._id.toString(),
-          lead
-        );
-      }
-
       res.status(201).json({ lead });
-      await CRMWebhookService.pushEvent({
-        promoteurId: project.promoteur.toString(),
-        event: 'lead.created',
-        payload: { leadId: lead._id.toString(), projectId: project._id.toString() },
-      });
+
+      // Non-blocking notifications/webhooks to avoid client timeouts when SMTP is slow.
+      void (async () => {
+        try {
+          const promoteur = await Promoteur.findById(project.promoteur).populate('user');
+          if (promoteur?.user) {
+            await NotificationService.notifyNewLead({
+              promoteurUserId: (promoteur.user as any)._id.toString(),
+              leadId: lead._id.toString(),
+              projectTitle: project.title,
+              leadName: `${firstName} ${lastName}`,
+              leadScore: lead.score,
+            });
+
+            await RealTimeNotificationService.notifyNewLead(
+              (promoteur.user as any)._id.toString(),
+              lead
+            );
+          }
+
+          await CRMWebhookService.pushEvent({
+            promoteurId: project.promoteur.toString(),
+            event: 'lead.created',
+            payload: { leadId: lead._id.toString(), projectId: project._id.toString() },
+          });
+        } catch (notificationError) {
+          console.error('[LeadController.createLead] Async notification/webhook error:', notificationError);
+        }
+      })();
     } catch (error) {
       console.error('Error creating lead:', error);
       res.status(500).json({ message: 'Server error' });

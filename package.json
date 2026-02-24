@@ -13,6 +13,7 @@
     "init-platform": "ts-node src/initPlatform.ts",
     "backfill-compliance": "ts-node src/scripts/backfillComplianceStatus.ts",
     "seed-demo": "ts-node src/scripts/seedDemoData.ts"
+    ,"link-leads": "ts-node src/scripts/linkLeadsToUsers.ts"
   },
   "author": "",
   "license": "MIT",

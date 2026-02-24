@@ -15,20 +15,6 @@ export const authenticateJWT = async (req: AuthRequest, res: Response, next: Nex
     console.log('[authenticateJWT] Token décodé:', decoded);
     req.user = { id: decoded.id, roles: decoded.roles };
     
-    // Check if user has a promoteur profile but PROMOTEUR role is missing
-    // This handles the case where user created a promoteur profile after logging in
-    if (!req.user.roles.includes(Role.PROMOTEUR)) {
-      try {
-        const user = await User.findById(req.user.id);
-        if (user?.promoteurProfile && !req.user.roles.includes(Role.PROMOTEUR)) {
-          req.user.roles.push(Role.PROMOTEUR);
-        }
-      } catch (err) {
-        // Log error but continue - don't fail the request
-        console.error('[authenticateJWT] Error checking promoteur profile:', err);
-      }
-    }
-    
     // Load promoteurProfile from database for controllers that need it
     try {
       const user = await User.findById(req.user.id);
@@ -57,18 +43,6 @@ export const authenticateJWTOptional = async (req: AuthRequest, res: Response, n
     const decoded = jwt.verify(token, process.env.JWT_SECRET || 'secret') as any;
     console.log('[authenticateJWTOptional] Token décodé:', decoded);
     req.user = { id: decoded.id, roles: decoded.roles };
-    
-    // Check if user has a promoteur profile but PROMOTEUR role is missing
-    if (!req.user.roles.includes(Role.PROMOTEUR)) {
-      try {
-        const user = await User.findById(req.user.id);
-        if (user?.promoteurProfile && !req.user.roles.includes(Role.PROMOTEUR)) {
-          req.user.roles.push(Role.PROMOTEUR);
-        }
-      } catch (err) {
-        console.error('[authenticateJWTOptional] Error checking promoteur profile:', err);
-      }
-    }
     
     // Load promoteurProfile from database for controllers that need it
     try {

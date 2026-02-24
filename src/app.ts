@@ -3,6 +3,7 @@ import authRoutes from './routes/authRoutes';
 import userRoutes from './routes/userRoutes';
 import promoteurRoutes from './routes/promoteurRoutes';
 import publicPromoteurRoutes from './routes/publicPromoteurRoutes';
+import publicServiceRoutes from './routes/publicServiceRoutes';
 import projectRoutes from './routes/projectRoutes';
 import leadRoutes from './routes/leadRoutes';
 import updateRoutes from './routes/updateRoutes';
@@ -58,6 +59,7 @@ import teamManagementRoutes from './routes/teamManagementRoutes';
 import abTestRoutes from './routes/abTestRoutes';
 import swaggerUi from 'swagger-ui-express';
 import swaggerSpec from './config/swagger';
+import corsOptions, { logAllowedOrigins } from './config/cors';
 import { errorHandler } from './middlewares/errorHandler';
 import helmet from 'helmet';
 import cors from 'cors';
@@ -80,11 +82,12 @@ app.use(express.json({ limit: '10mb' }));
 // Security middlewares
 if (process.env.TRUST_PROXY === 'true') app.set('trust proxy', 1);
 app.use(helmet());
-app.use(cors({
-	origin: process.env.CORS_ORIGIN || '*',
-	methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-	allowedHeaders: ['Content-Type', 'Authorization'],
-}));
+app.use(cors(corsOptions));
+
+// Log autorisations CORS en démarrage
+if (process.env.NODE_ENV === 'development') {
+	logAllowedOrigins();
+}
 
 const limiter = rateLimit({
 	windowMs: Number(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000,
@@ -113,6 +116,7 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/public/promoteurs', publicPromoteurRoutes);
+app.use('/api/public', publicServiceRoutes);
 app.use('/api/promoteurs', promoteurRoutes);
 app.use('/api/team', teamManagementRoutes);
 app.use('/api/projects', projectRoutes);

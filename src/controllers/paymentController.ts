@@ -1091,7 +1091,14 @@ export const getCurrentSubscription = async (req: Request, res: Response) => {
     }).sort({ createdAt: -1 });
     console.log('[getCurrentSubscription] subscription:', subscription);
 
-    res.json({ subscription, promoteur: { plan: promoteur.plan, subscriptionStatus: promoteur.subscriptionStatus } });
+    res.json({
+      subscription,
+      promoteur: {
+        plan: promoteur.plan,
+        subscriptionStatus: promoteur.subscriptionStatus,
+        planChangeRequest: promoteur.planChangeRequest || null,
+      },
+    });
   } catch (error: any) {
     console.error('[getCurrentSubscription] Erreur récupération abonnement:', error);
     res.status(500).json({ message: 'Erreur lors de la récupération', error: error.message });

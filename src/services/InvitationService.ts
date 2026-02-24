@@ -117,13 +117,9 @@ export class InvitationService {
       throw new Error('Email does not match invitation');
     }
 
-    // S'assurer que l'utilisateur a le rôle promoteur
-    console.log('[InvitationService.acceptInvitation] User roles before:', user.roles);
-    
-    if (!user.roles.includes(Role.PROMOTEUR)) {
-      user.roles.push(Role.PROMOTEUR);
-      console.log('[InvitationService.acceptInvitation] Added PROMOTEUR role');
-    }
+    // Ne pas attribuer automatiquement le rôle global PROMOTEUR aux invités.
+    // L'accès promoteur est désormais géré par promoteurProfile + RBAC d'équipe.
+    console.log('[InvitationService.acceptInvitation] User roles before (unchanged):', user.roles);
 
     // Add user to team et lier promoteurProfile
     let promoteur = await Promoteur.findById(invitation.promoteur);
@@ -319,7 +315,16 @@ export class InvitationService {
 
     if (!promoteur || !inviter) return;
 
-    const acceptUrl = `${process.env.FRONTEND_URL}/accept-invitation/${invitation.token}`;
+    // Entry URL used in invitation emails.
+    // It can point to a client app (bridge) that forwards to promoteur with current auth token.
+    const invitationFrontendUrl =
+      process.env.INVITATION_FRONTEND_URL ||
+      process.env.CLIENT_DASHBOARD_URL ||
+      process.env.CLIENT_FRONTEND_URL ||
+      process.env.PROMOTEUR_FRONTEND_URL ||
+      process.env.FRONTEND_PROMOTEUR_URL ||
+      'http://localhost:8083';
+    const acceptUrl = `${invitationFrontendUrl}/accept-invitation/${invitation.token}`;
 
     await sendEmail({
       to: invitation.email,

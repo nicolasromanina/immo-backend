@@ -108,7 +108,7 @@ export class SupportService {
           });
         }
         await NotificationService.create({
-          recipient: ticket.user.toString(),
+          recipient: ticket.user!.toString(),
           type: 'system',
           title: `Réponse ticket #${ticket.ticketNumber}`,
           message: 'L\'équipe support a répondu à votre ticket',
@@ -153,14 +153,16 @@ export class SupportService {
 
     await ticket.save();
 
-    await NotificationService.create({
-      recipient: ticket.user.toString(),
-      type: 'system',
-      title: `Ticket #${ticket.ticketNumber} résolu`,
-      message: resolutionNote || 'Votre ticket a été résolu',
-      priority: 'medium',
-      channels: { inApp: true, email: true },
-    });
+    if (ticket.user) {
+      await NotificationService.create({
+        recipient: ticket.user.toString(),
+        type: 'system',
+        title: `Ticket #${ticket.ticketNumber} résolu`,
+        message: resolutionNote || 'Votre ticket a été résolu',
+        priority: 'medium',
+        channels: { inApp: true, email: true },
+      });
+    }
 
     return ticket;
   }

@@ -14,8 +14,15 @@ router.use(authorizeRoles(Role.ADMIN, Role.SUPPORT));
 // KYC document validation (individual)
 router.post('/promoteurs/:promoteurId/kyc-docs/:docId/verify', AdminController.verifyKYCDocument);
 
+// Company documents validation (individual)
+router.post('/promoteurs/:promoteurId/company-docs/:docId/approve', AdminController.approveCompanyDocument);
+
 // Financial proof document validation (individual)
 router.post('/promoteurs/:promoteurId/financial-docs/:docId/approve', AdminController.approveFinancialProofDocument);
+
+// Project documents verification
+router.get('/documents/unverified', AdminController.getUnverifiedProjectDocuments);
+router.post('/documents/:documentId/verify', AdminController.verifyProjectDocument);
 
 // Dashboard
 router.get('/dashboard/stats', AdminController.getDashboardStats);
@@ -90,6 +97,10 @@ router.post('/badges/revoke', authenticateJWT, authorizeRoles(Role.ADMIN), Badge
 
 // Audit logs
 router.get('/audit-logs', AdminController.getAuditLogs);
+
+// A/B Tests (admin view all)
+import { ABTestController } from '../controllers/ABTestController';
+router.get('/ab-tests', ABTestController.getAllForAdmin);
 
 // Backfill trust score snapshots (admin)
 router.post('/trust-score-snapshots/backfill', AdminController.backfillTrustScoreSnapshots);

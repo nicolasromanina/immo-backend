@@ -351,6 +351,76 @@ export class PromoteurController {
   }
 
   /**
+   * Upload company documents
+   */
+  static async uploadCompanyDocument(req: AuthRequest, res: Response) {
+    try {
+      const { type, url, name } = req.body;
+
+      const user = await User.findById(req.user!.id);
+      if (!user?.promoteurProfile) {
+        return res.status(404).json({ message: 'Promoteur profile not found' });
+      }
+
+      const promoteur = await Promoteur.findById(user.promoteurProfile);
+      if (!promoteur) {
+        return res.status(404).json({ message: 'Promoteur not found' });
+      }
+
+      promoteur.companyDocuments.push({
+        type,
+        url,
+        name,
+        uploadedAt: new Date(),
+        status: 'pending',
+        rejectionReason: '',
+      });
+
+      await promoteur.save();
+
+      res.json({ promoteur });
+    } catch (error) {
+      console.error('Error uploading company document:', error);
+      res.status(500).json({ message: 'Server error' });
+    }
+  }
+
+  /**
+   * Delete company document
+   */
+  static async deleteCompanyDocument(req: AuthRequest, res: Response) {
+    try {
+      const { id } = req.params;
+
+      const user = await User.findById(req.user!.id);
+      if (!user?.promoteurProfile) {
+        return res.status(404).json({ message: 'Promoteur profile not found' });
+      }
+
+      const promoteur = await Promoteur.findById(user.promoteurProfile);
+      if (!promoteur) {
+        return res.status(404).json({ message: 'Promoteur not found' });
+      }
+
+      const docIndex = promoteur.companyDocuments.findIndex(
+        (d: any) => d._id?.toString() === id
+      );
+      if (docIndex === -1) {
+        return res.status(404).json({ message: 'Company document not found' });
+      }
+
+      promoteur.companyDocuments.splice(docIndex, 1);
+
+      await promoteur.save();
+
+      res.json({ promoteur });
+    } catch (error) {
+      console.error('Error deleting company document:', error);
+      res.status(500).json({ message: 'Server error' });
+    }
+  }
+
+  /**
    * Get trust score and improvement suggestions
    */
   static async getTrustScore(req: AuthRequest, res: Response) {
@@ -470,6 +540,21 @@ export class PromoteurController {
       if (!promoteur) {
         return res.status(404).json({ message: 'Promoteur not found' });
       }
+
+      // Initialize onboarding checklist if it's empty
+      if (!promoteur.onboardingChecklist || promoteur.onboardingChecklist.length === 0) {
+        promoteur.onboardingChecklist = [
+          { code: 'org_info', item: 'Compléter les informations de l\'organisation', completed: true, completedAt: new Date() },
+          { code: 'kyc', item: 'Vérifier l\'identité (KYC)', completed: false },
+          { code: 'company_docs', item: 'Uploader les documents de société', completed: false },
+          { code: 'financial_proof', item: 'Prouver la capacité financière', completed: false },
+          { code: 'first_project', item: 'Créer le premier projet', completed: false },
+        ];
+      }
+
+      // Always recalculate to ensure data is up-to-date after admin approvals
+      OnboardingService.recalculate(promoteur);
+      await promoteur.save();
 
       res.json({
         checklist: promoteur.onboardingChecklist,

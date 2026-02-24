@@ -25,6 +25,9 @@ export class UpdateController {
         nextStep,
         nextMilestoneDate,
         risksIdentified,
+        projectStatus,
+        progressDescription,
+        expectedDeliveryDate,
         milestone,
         scheduledFor,
       } = req.body;
@@ -55,6 +58,27 @@ export class UpdateController {
         return res.status(400).json({ message: 'whatsDone, nextStep, risksIdentified and nextMilestoneDate are required' });
       }
 
+      const allowedProjectStatuses = new Set([
+        'pre-commercialisation',
+        'en-construction',
+        'gros-oeuvre',
+        'livre',
+        'pause',
+        'archive',
+        'suspended',
+      ]);
+      if (projectStatus && !allowedProjectStatuses.has(projectStatus)) {
+        return res.status(400).json({ message: 'Invalid projectStatus value' });
+      }
+
+      let parsedExpectedDeliveryDate: Date | undefined;
+      if (expectedDeliveryDate) {
+        parsedExpectedDeliveryDate = new Date(expectedDeliveryDate);
+        if (Number.isNaN(parsedExpectedDeliveryDate.getTime())) {
+          return res.status(400).json({ message: 'expectedDeliveryDate must be a valid date' });
+        }
+      }
+
       if (scheduledFor) {
         const scheduledDate = new Date(scheduledFor);
         if (Number.isNaN(scheduledDate.getTime()) || scheduledDate <= new Date()) {
@@ -74,6 +98,9 @@ export class UpdateController {
         nextStep,
         nextMilestoneDate: new Date(nextMilestoneDate),
         risksIdentified,
+        projectStatus,
+        progressDescription: typeof progressDescription === 'string' ? progressDescription.trim() : undefined,
+        expectedDeliveryDate: parsedExpectedDeliveryDate,
         milestone,
         status: scheduledFor ? 'scheduled' : 'draft',
         scheduledFor: scheduledFor ? new Date(scheduledFor) : undefined,
@@ -229,6 +256,9 @@ export class UpdateController {
         'nextStep',
         'nextMilestoneDate',
         'risksIdentified',
+        'projectStatus',
+        'progressDescription',
+        'expectedDeliveryDate',
         'milestone',
         'scheduledFor',
       ];
@@ -239,8 +269,37 @@ export class UpdateController {
         }
       });
 
+      if (typeof req.body.progressDescription === 'string') {
+        update.progressDescription = req.body.progressDescription.trim();
+      }
+
       if (req.body.photos && req.body.photos.length !== 3) {
         return res.status(400).json({ message: 'Exactly 3 photos are required for each update' });
+      }
+
+      if (req.body.projectStatus) {
+        const allowedProjectStatuses = new Set([
+          'pre-commercialisation',
+          'en-construction',
+          'gros-oeuvre',
+          'livre',
+          'pause',
+          'archive',
+          'suspended',
+        ]);
+        if (!allowedProjectStatuses.has(req.body.projectStatus)) {
+          return res.status(400).json({ message: 'Invalid projectStatus value' });
+        }
+      }
+
+      if (req.body.expectedDeliveryDate) {
+        const parsedExpectedDeliveryDate = new Date(req.body.expectedDeliveryDate);
+        if (Number.isNaN(parsedExpectedDeliveryDate.getTime())) {
+          return res.status(400).json({ message: 'expectedDeliveryDate must be a valid date' });
+        }
+        update.expectedDeliveryDate = parsedExpectedDeliveryDate;
+      } else if (req.body.expectedDeliveryDate === null || req.body.expectedDeliveryDate === '') {
+        update.expectedDeliveryDate = undefined;
       }
 
       if (req.body.scheduledFor) {
