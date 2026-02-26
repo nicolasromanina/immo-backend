@@ -45,8 +45,27 @@ export class AppointmentController {
         notes,
       } = req.body;
 
+      let targetPromoteurId = promoteurId as string | undefined;
+      if (!targetPromoteurId) {
+        const promoteur = await Promoteur.findOne({ user: req.user!.id }).select('_id');
+        targetPromoteurId = promoteur?._id?.toString();
+      }
+
+      if (!targetPromoteurId) {
+        return res.status(400).json({ message: 'promoteurId is required' });
+      }
+
+      const { PlanLimitService } = await import('../services/PlanLimitService');
+      const canScheduleAppointments = await PlanLimitService.checkCapability(targetPromoteurId, 'calendarAppointments');
+      if (!canScheduleAppointments) {
+        return res.status(403).json({
+          message: 'La prise de rendez-vous n est pas disponible sur votre plan',
+          upgrade: true,
+        });
+      }
+
       const appointment = await AppointmentService.createAppointment({
-        promoteurId,
+        promoteurId: targetPromoteurId,
         projectId,
         leadId,
         scheduledAt: new Date(scheduledAt),
@@ -59,6 +78,12 @@ export class AppointmentController {
       res.status(201).json({ appointment });
     } catch (error) {
       console.error('Error creating appointment:', error);
+      if ((error as any)?.message?.includes('not available on this plan')) {
+        return res.status(403).json({
+          message: 'La prise de rendez-vous n est pas disponible sur votre plan',
+          upgrade: true,
+        });
+      }
       res.status(500).json({ message: 'Server error' });
     }
   }

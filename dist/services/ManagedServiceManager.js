@@ -7,11 +7,16 @@ exports.ManagedServiceManager = void 0;
 const ManagedService_1 = __importDefault(require("../models/ManagedService"));
 const Promoteur_1 = __importDefault(require("../models/Promoteur"));
 const NotificationService_1 = require("./NotificationService");
+const PlanLimitService_1 = require("./PlanLimitService");
 class ManagedServiceManager {
     /**
      * Request managed service
      */
     static async requestManagedService(data) {
+        const canUseManagedService = await PlanLimitService_1.PlanLimitService.checkCapability(data.promoteurId, 'managedService');
+        if (!canUseManagedService) {
+            throw new Error('Managed service is not available on this plan');
+        }
         const managed = await ManagedService_1.default.create({
             promoteur: data.promoteurId,
             type: data.type,

@@ -2,20 +2,25 @@ import mongoose, { Schema, Document } from 'mongoose';
 
 export interface ISubscription extends Document {
   promoteur: mongoose.Types.ObjectId;
-  plan: 'basique' | 'standard' | 'premium';
+  plan: 'starter' | 'publie' | 'verifie' | 'partenaire' | 'enterprise';
   status: 'active' | 'canceled' | 'past_due' | 'incomplete' | 'trialing';
-  
+  billingInterval: 'month' | 'year';
+
   // Stripe IDs
   stripeCustomerId?: string;
   stripeSubscriptionId?: string;
   stripePriceId?: string;
-  
+
   // Dates
   currentPeriodStart: Date;
   currentPeriodEnd: Date;
   canceledAt?: Date;
   cancelAt?: Date;
-  
+
+  // Setup fee
+  setupFeePaid: boolean;
+  setupFeeAmount: number;
+
   // Metadata
   metadata?: Record<string, any>;
 
@@ -34,28 +39,35 @@ const SubscriptionSchema: Schema = new Schema({
     required: true,
     index: true
   },
-  plan: { 
-    type: String, 
-    enum: ['basique', 'standard', 'premium'],
+  plan: {
+    type: String,
+    enum: ['starter', 'publie', 'verifie', 'partenaire', 'enterprise'],
     required: true
   },
-  status: { 
-    type: String, 
+  status: {
+    type: String,
     enum: ['active', 'canceled', 'past_due', 'incomplete', 'trialing'],
     default: 'incomplete'
   },
-  
+  billingInterval: {
+    type: String,
+    enum: ['month', 'year'],
+    default: 'year'
+  },
+
   stripeCustomerId: { type: String },
   stripeSubscriptionId: { type: String, unique: true, sparse: true },
   stripePriceId: { type: String },
-  
+
   currentPeriodStart: { type: Date, required: true },
   currentPeriodEnd: { type: Date, required: true },
   canceledAt: { type: Date },
   cancelAt: { type: Date },
-  
-  metadata: { type: Map, of: Schema.Types.Mixed }
-  ,
+
+  setupFeePaid: { type: Boolean, default: false },
+  setupFeeAmount: { type: Number, default: 0 },
+
+  metadata: { type: Map, of: Schema.Types.Mixed },
   billingReminders: {
     sevenDaysAt: { type: Date },
     oneDayAt: { type: Date },

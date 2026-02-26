@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { BrochureController } from '../controllers/brochureController';
 import { authenticateJWT, authorizeRoles } from '../middlewares/auth';
+import { requirePlanCapability } from '../middlewares/planEntitlements';
 import { Role } from '../config/roles';
 
 const router = Router();
@@ -32,6 +33,7 @@ router.get(
   '/my-requests',
   authenticateJWT,
   authorizeRoles(Role.PROMOTEUR),
+  requirePlanCapability('brochureAnalytics'),
   BrochureController.getMyRequests
 );
 
@@ -40,6 +42,7 @@ router.get(
   '/stats',
   authenticateJWT,
   authorizeRoles(Role.PROMOTEUR),
+  requirePlanCapability('brochureAnalytics'),
   BrochureController.getStats
 );
 
@@ -48,6 +51,7 @@ router.get(
   '/project/:projectId',
   authenticateJWT,
   authorizeRoles(Role.PROMOTEUR),
+  requirePlanCapability('brochureAnalytics'),
   BrochureController.getProjectRequests
 );
 

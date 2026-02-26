@@ -94,6 +94,7 @@ const aiAssistantRoutes_1 = __importDefault(require("./routes/aiAssistantRoutes"
 const partnerWorkflowRoutes_1 = __importDefault(require("./routes/partnerWorkflowRoutes"));
 const teamManagementRoutes_1 = __importDefault(require("./routes/teamManagementRoutes"));
 const abTestRoutes_1 = __importDefault(require("./routes/abTestRoutes"));
+const reviewRoutes_1 = __importDefault(require("./routes/reviewRoutes"));
 const swagger_ui_express_1 = __importDefault(require("swagger-ui-express"));
 const swagger_1 = __importDefault(require("./config/swagger"));
 const cors_1 = __importStar(require("./config/cors"));
@@ -198,6 +199,7 @@ app.use('/api/og', openGraphRoutes_1.default);
 app.use('/api/ai-assistant', aiAssistantRoutes_1.default);
 app.use('/api/partner-workflows', partnerWorkflowRoutes_1.default);
 app.use('/api/ab-tests', abTestRoutes_1.default);
+app.use('/api/reviews', reviewRoutes_1.default);
 // API Documentation
 app.use('/api/docs', swagger_ui_express_1.default.serve, swagger_ui_express_1.default.setup(swagger_1.default));
 app.get('/', (_req, res) => res.send('Real Estate Platform API is running'));

@@ -1,6 +1,7 @@
 import ManagedService from '../models/ManagedService';
 import Promoteur from '../models/Promoteur';
 import { NotificationService } from './NotificationService';
+import { PlanLimitService } from './PlanLimitService';
 
 export class ManagedServiceManager {
   /**
@@ -17,6 +18,11 @@ export class ManagedServiceManager {
     };
     monthlyFee: number;
   }) {
+    const canUseManagedService = await PlanLimitService.checkCapability(data.promoteurId, 'managedService');
+    if (!canUseManagedService) {
+      throw new Error('Managed service is not available on this plan');
+    }
+
     const managed = await ManagedService.create({
       promoteur: data.promoteurId,
       type: data.type,

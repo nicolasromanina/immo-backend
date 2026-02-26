@@ -234,6 +234,15 @@ export class LeadController {
         return res.status(403).json({ message: 'Not authorized' });
       }
 
+      const { PlanLimitService } = await import('../services/PlanLimitService');
+      const canUsePipeline = await PlanLimitService.checkCapability(user!.promoteurProfile.toString(), 'leadPipeline');
+      if (!canUsePipeline) {
+        return res.status(403).json({
+          message: 'Le pipeline avance de leads n est pas disponible sur votre plan',
+          upgrade: true,
+        });
+      }
+
       // Record first contact if status changes from 'nouveau'
       if (lead.status === 'nouveau' && status !== 'nouveau') {
         await LeadScoringService.recordResponse(id);
@@ -282,6 +291,12 @@ export class LeadController {
       res.json({ lead: updatedLead });
     } catch (error) {
       console.error('Error updating lead status:', error);
+      if ((error as any)?.message?.includes('Lead pipeline is not available on this plan')) {
+        return res.status(403).json({
+          message: 'Le pipeline avance de leads n est pas disponible sur votre plan',
+          upgrade: true,
+        });
+      }
       res.status(500).json({ message: 'Server error' });
     }
   }
@@ -319,6 +334,15 @@ export class LeadController {
 
       if (!isOwner && !isClient) {
         return res.status(403).json({ message: 'Not authorized' });
+      }
+
+      const { PlanLimitService } = await import('../services/PlanLimitService');
+      const canScheduleAppointments = await PlanLimitService.checkCapability(lead.promoteur.toString(), 'calendarAppointments');
+      if (!canScheduleAppointments) {
+        return res.status(403).json({
+          message: 'La prise de rendez-vous n est pas disponible sur votre plan',
+          upgrade: true,
+        });
       }
 
       if (!scheduledAt || !type) {
@@ -515,6 +539,15 @@ export class LeadController {
         return res.status(403).json({ message: 'Only promoteurs can export leads' });
       }
 
+      const { PlanLimitService } = await import('../services/PlanLimitService');
+      const canExport = await PlanLimitService.checkCapability(user.promoteurProfile.toString(), 'leadExport');
+      if (!canExport) {
+        return res.status(403).json({
+          message: 'L export CSV des leads n est pas disponible sur votre plan',
+          upgrade: true,
+        });
+      }
+
       const { projectId, status, score } = req.query;
 
       const query: any = { promoteur: user.promoteurProfile };
@@ -561,6 +594,15 @@ export class LeadController {
       // Check ownership
       if (lead.promoteur.toString() !== user?.promoteurProfile?.toString()) {
         return res.status(403).json({ message: 'Not authorized' });
+      }
+
+      const { PlanLimitService } = await import('../services/PlanLimitService');
+      const canUsePipeline = await PlanLimitService.checkCapability(lead.promoteur.toString(), 'leadPipeline');
+      if (!canUsePipeline) {
+        return res.status(403).json({
+          message: 'Le pipeline avance de leads n est pas disponible sur votre plan',
+          upgrade: true,
+        });
       }
 
       lead.assignedTo = teamMemberId;

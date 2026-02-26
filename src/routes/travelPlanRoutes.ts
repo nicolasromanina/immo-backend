@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { TravelPlanController } from '../controllers/travelPlanController';
 import { authenticateJWT, authorizeRoles } from '../middlewares/auth';
+import { requirePlanCapability } from '../middlewares/planEntitlements';
 import { Role } from '../config/roles';
 
 const router = Router();
@@ -29,6 +30,6 @@ router.post('/:id/optimize', TravelPlanController.optimizeItinerary);
 router.post('/:id/share', TravelPlanController.generateShareLink);
 
 // Promoteur routes - see upcoming visits
-router.get('/promoteur/visits', authorizeRoles(Role.PROMOTEUR), TravelPlanController.getPromoteurUpcomingVisits);
+router.get('/promoteur/visits', authorizeRoles(Role.PROMOTEUR), requirePlanCapability('travelPlanning'), TravelPlanController.getPromoteurUpcomingVisits);
 
 export default router;

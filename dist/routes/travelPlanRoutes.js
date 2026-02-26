@@ -3,6 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = require("express");
 const travelPlanController_1 = require("../controllers/travelPlanController");
 const auth_1 = require("../middlewares/auth");
+const planEntitlements_1 = require("../middlewares/planEntitlements");
 const roles_1 = require("../config/roles");
 const router = (0, express_1.Router)();
 // Public routes
@@ -24,5 +25,5 @@ router.patch('/:id/visits/:visitId/complete', travelPlanController_1.TravelPlanC
 router.post('/:id/optimize', travelPlanController_1.TravelPlanController.optimizeItinerary);
 router.post('/:id/share', travelPlanController_1.TravelPlanController.generateShareLink);
 // Promoteur routes - see upcoming visits
-router.get('/promoteur/visits', (0, auth_1.authorizeRoles)(roles_1.Role.PROMOTEUR), travelPlanController_1.TravelPlanController.getPromoteurUpcomingVisits);
+router.get('/promoteur/visits', (0, auth_1.authorizeRoles)(roles_1.Role.PROMOTEUR), (0, planEntitlements_1.requirePlanCapability)('travelPlanning'), travelPlanController_1.TravelPlanController.getPromoteurUpcomingVisits);
 exports.default = router;

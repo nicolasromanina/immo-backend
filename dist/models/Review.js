@@ -34,47 +34,16 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
 const mongoose_1 = __importStar(require("mongoose"));
-const SubscriptionSchema = new mongoose_1.Schema({
-    promoteur: {
-        type: mongoose_1.Schema.Types.ObjectId,
-        ref: 'Promoteur',
-        required: true,
-        index: true
-    },
-    plan: {
-        type: String,
-        enum: ['starter', 'publie', 'verifie', 'partenaire', 'enterprise'],
-        required: true
-    },
-    status: {
-        type: String,
-        enum: ['active', 'canceled', 'past_due', 'incomplete', 'trialing'],
-        default: 'incomplete'
-    },
-    billingInterval: {
-        type: String,
-        enum: ['month', 'year'],
-        default: 'year'
-    },
-    stripeCustomerId: { type: String },
-    stripeSubscriptionId: { type: String, unique: true, sparse: true },
-    stripePriceId: { type: String },
-    currentPeriodStart: { type: Date, required: true },
-    currentPeriodEnd: { type: Date, required: true },
-    canceledAt: { type: Date },
-    cancelAt: { type: Date },
-    setupFeePaid: { type: Boolean, default: false },
-    setupFeeAmount: { type: Number, default: 0 },
-    metadata: { type: Map, of: mongoose_1.Schema.Types.Mixed },
-    billingReminders: {
-        sevenDaysAt: { type: Date },
-        oneDayAt: { type: Date },
-        pastDueAt: { type: Date },
-    }
-}, {
-    timestamps: true
-});
-// Index pour recherche rapide
-SubscriptionSchema.index({ promoteur: 1, status: 1 });
-SubscriptionSchema.index({ stripeSubscriptionId: 1 });
-exports.default = mongoose_1.default.model('Subscription', SubscriptionSchema);
+const ReviewSchema = new mongoose_1.Schema({
+    client: { type: mongoose_1.Schema.Types.ObjectId, ref: 'User', required: true },
+    project: { type: mongoose_1.Schema.Types.ObjectId, ref: 'Project', required: true },
+    promoteur: { type: mongoose_1.Schema.Types.ObjectId, ref: 'Promoteur', required: true },
+    rating: { type: Number, required: true, min: 1, max: 5 },
+    comment: { type: String, maxlength: 1000 },
+    status: { type: String, enum: ['pending', 'published', 'rejected'], default: 'pending' },
+}, { timestamps: true });
+// Un client ne peut laisser qu'un seul review par projet
+ReviewSchema.index({ client: 1, project: 1 }, { unique: true });
+ReviewSchema.index({ project: 1, status: 1 });
+ReviewSchema.index({ promoteur: 1, status: 1 });
+exports.default = mongoose_1.default.model('Review', ReviewSchema);

@@ -24,6 +24,15 @@ export class WhatsAppController {
         return res.status(403).json({ message: 'Not authorized' });
       }
 
+      const { PlanLimitService } = await import('../services/PlanLimitService');
+      const canUseWhatsAppTemplates = await PlanLimitService.checkCapability(lead.promoteur.toString(), 'whatsAppTemplates');
+      if (!canUseWhatsAppTemplates) {
+        return res.status(403).json({
+          message: 'Les templates WhatsApp ne sont pas disponibles sur votre plan',
+          upgrade: true,
+        });
+      }
+
       if (!lead.whatsapp && !lead.phone) {
         return res.status(400).json({ message: 'Lead has no WhatsApp number' });
       }

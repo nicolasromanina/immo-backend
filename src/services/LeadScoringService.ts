@@ -2,6 +2,7 @@ import Lead from '../models/Lead';
 import Project from '../models/Project';
 import Promoteur from '../models/Promoteur';
 import { RealChatService } from './RealChatService';
+import { PlanLimitService } from './PlanLimitService';
 
 export class LeadScoringService {
   /**
@@ -134,6 +135,9 @@ export class LeadScoringService {
       messageQuality,
     });
 
+    const canUseLeadScoring = await PlanLimitService.checkCapability(params.promoteurId, 'leadScoring');
+    const effectiveScore = canUseLeadScoring ? scoring.score : 'C';
+
     const lead = new Lead({
       project: params.projectId,
       promoteur: params.promoteurId,
@@ -147,7 +151,7 @@ export class LeadScoringService {
       financingType: params.financingType || 'unknown',
       timeframe: params.timeframe,
       interestedTypology: params.interestedTypology,
-      score: scoring.score,
+      score: effectiveScore,
       scoreDetails: scoring.details,
       status: 'nouveau',
       pipeline: [{
@@ -212,6 +216,11 @@ export class LeadScoringService {
   ) {
     const lead = await Lead.findById(leadId);
     if (!lead) throw new Error('Lead not found');
+
+    const canUsePipeline = await PlanLimitService.checkCapability(lead.promoteur.toString(), 'leadPipeline');
+    if (!canUsePipeline && !['nouveau', 'contacte'].includes(newStatus)) {
+      throw new Error('Lead pipeline is not available on this plan');
+    }
 
     lead.status = newStatus as any;
     lead.pipeline.push({

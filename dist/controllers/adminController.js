@@ -1223,7 +1223,7 @@ class AdminController {
                 // Archive all projects
                 await Project_1.default.updateMany({ promoteur: promoteurId }, { status: 'archive' });
                 // Update promoteur
-                promoteur.plan = 'basique';
+                promoteur.plan = 'starter';
                 promoteur.subscriptionStatus = 'expired';
                 promoteur.subscriptionEndDate = new Date();
             }

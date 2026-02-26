@@ -4,9 +4,13 @@ export interface IPromoteur extends Document {
   user: mongoose.Types.ObjectId;
   organizationName: string;
   organizationType: 'individual' | 'small' | 'established' | 'enterprise';
-  
+
   // Plan & Subscription
-  plan: 'basique' | 'standard' | 'premium';
+  plan: 'starter' | 'publie' | 'verifie' | 'partenaire' | 'enterprise';
+  isFoundingPartner: boolean;
+  foundingPartnerDiscount: number;
+  foundingPartnerExpiresAt?: Date;
+  isLegacyPlan: boolean;
   subscriptionStatus: 'trial' | 'active' | 'expired' | 'suspended';
   subscriptionStartDate?: Date;
   subscriptionEndDate?: Date;
@@ -117,7 +121,7 @@ export interface IPromoteur extends Document {
   
   // Plan change requests
   planChangeRequest?: {
-    requestedPlan: 'basique' | 'standard' | 'premium' | null;
+    requestedPlan: 'starter' | 'publie' | 'verifie' | 'partenaire' | 'enterprise' | null;
     requestType: 'upgrade' | 'downgrade' | 'cancel';
     requestedAt: Date;
     effectiveDate?: Date;
@@ -135,11 +139,15 @@ const PromoteurSchema: Schema = new Schema({
     default: 'small'
   },
   
-  plan: { 
-    type: String, 
-    enum: ['basique', 'standard', 'premium'],
-    default: 'basique'
+  plan: {
+    type: String,
+    enum: ['starter', 'publie', 'verifie', 'partenaire', 'enterprise'],
+    default: 'starter'
   },
+  isFoundingPartner: { type: Boolean, default: false },
+  foundingPartnerDiscount: { type: Number, default: 0, min: 0, max: 100 },
+  foundingPartnerExpiresAt: { type: Date },
+  isLegacyPlan: { type: Boolean, default: false },
   subscriptionStatus: { 
     type: String, 
     enum: ['trial', 'active', 'expired', 'suspended'],
@@ -256,7 +264,7 @@ const PromoteurSchema: Schema = new Schema({
   }],
   
   planChangeRequest: {
-    requestedPlan: { type: String, enum: ['basique', 'standard', 'premium', null] },
+    requestedPlan: { type: String, enum: ['starter', 'publie', 'verifie', 'partenaire', 'enterprise', null] },
     requestType: { type: String, enum: ['upgrade', 'downgrade', 'cancel'] },
     requestedAt: { type: Date, default: Date.now },
     effectiveDate: { type: Date },

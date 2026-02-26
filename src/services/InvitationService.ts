@@ -5,6 +5,7 @@ import Promoteur from '../models/Promoteur';
 import User from '../models/User';
 import { sendEmail } from '../utils/emailService';
 import { Role } from '../config/roles';
+import { PlanLimitService } from './PlanLimitService';
 
 export class InvitationService {
   static async createInvitation(
@@ -16,6 +17,11 @@ export class InvitationService {
     // Check if user is already a team member
     const promoteur = await Promoteur.findById(promoteurId);
     if (!promoteur) throw new Error('Promoteur not found');
+
+    const canAddTeamMember = await PlanLimitService.checkTeamMemberLimit(promoteurId);
+    if (!canAddTeamMember) {
+      throw new Error('Limite de membres d equipe atteinte pour ce plan');
+    }
 
     const existingMember = promoteur.teamMembers.find(member =>
       member.userId.toString() === invitedBy
@@ -141,16 +147,16 @@ export class InvitationService {
     console.log('[InvitationService.acceptInvitation] User saved successfully');
 
     // Déterminer le plan à appliquer selon le rôle de l'invitant (owner)
-    // Si l'invitant (owner) est admin, plan premium, sinon standard
+    // Migration des anciens labels: premium -> enterprise, standard -> starter
     let planToSet = promoteur.plan;
     try {
       const ownerUser = await User.findById(promoteur.user);
       if (ownerUser && ownerUser.roles.includes(Role.ADMIN)) {
-        planToSet = 'premium';
-        console.log('[InvitationService.acceptInvitation] Plan set to premium (owner is admin)');
+        planToSet = 'enterprise';
+        console.log('[InvitationService.acceptInvitation] Plan set to enterprise (owner is admin)');
       } else {
-        planToSet = 'standard';
-        console.log('[InvitationService.acceptInvitation] Plan set to standard');
+        planToSet = 'starter';
+        console.log('[InvitationService.acceptInvitation] Plan set to starter');
       }
     } catch (e) {
       console.log('[InvitationService.acceptInvitation] Error determining plan:', e);

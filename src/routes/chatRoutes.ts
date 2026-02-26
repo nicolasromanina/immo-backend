@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { ChatService } from '../services/ChatService';
 import { ChatController } from '../controllers/chatController';
 import { authenticateJWT, authorizeRoles, AuthRequest } from '../middlewares/auth';
+import { requirePlanCapability } from '../middlewares/planEntitlements';
 import { ChatRequest } from '../assistants/types/chat.types';
 import { Role } from '../config/roles';
 
@@ -129,6 +130,7 @@ router.post('/chat/buyer', authenticateJWT, async (req: AuthRequest, res: Respon
 router.post('/chat/promoter', 
   authenticateJWT, 
   authorizeRoles(Role.PROMOTEUR, Role.ADMIN), 
+  requirePlanCapability('promoterAssistant'),
   async (req: AuthRequest, res: Response) => {
     try {
       const request: ChatRequest = {

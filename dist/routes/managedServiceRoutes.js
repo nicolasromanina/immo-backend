@@ -36,11 +36,13 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = require("express");
 const auth_1 = require("../middlewares/auth");
 const roles_1 = require("../config/roles");
+const promoteurRbac_1 = require("../middlewares/promoteurRbac");
+const planEntitlements_1 = require("../middlewares/planEntitlements");
 const managedController = __importStar(require("../controllers/managedServiceController"));
 const router = (0, express_1.Router)();
 // Promoteur routes
-router.post('/', auth_1.authenticateJWT, managedController.requestManagedService);
-router.get('/my', auth_1.authenticateJWT, managedController.getMyManagedServices);
+router.post('/', auth_1.authenticateJWT, promoteurRbac_1.requirePromoteurAccess, (0, promoteurRbac_1.requirePromoteurPermission)('viewReports'), (0, planEntitlements_1.requirePlanCapability)('managedService'), managedController.requestManagedService);
+router.get('/my', auth_1.authenticateJWT, promoteurRbac_1.requirePromoteurAccess, (0, promoteurRbac_1.requirePromoteurPermission)('viewReports'), (0, planEntitlements_1.requirePlanCapability)('managedService'), managedController.getMyManagedServices);
 // Admin routes
 router.get('/', auth_1.authenticateJWT, (0, auth_1.authorizeRoles)(roles_1.Role.ADMIN, roles_1.Role.MANAGER), managedController.getAllManagedServices);
 router.put('/:id/activate', auth_1.authenticateJWT, (0, auth_1.authorizeRoles)(roles_1.Role.ADMIN, roles_1.Role.MANAGER), managedController.activateManagedService);

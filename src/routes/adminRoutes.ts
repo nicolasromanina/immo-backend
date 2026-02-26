@@ -46,6 +46,22 @@ router.post('/promoteurs/:id/compliance/review', AdminController.reviewComplianc
 router.post('/promoteurs/:id/apply-plan-change', AdminController.applyPlanChange);
 // Admin: force-send onboarding reminder to a specific promoteur (for testing)
 router.post('/promoteurs/:id/send-onboarding-reminder', AdminController.sendOnboardingReminder);
+// Admin: set founding partner status + discount
+router.patch('/promoteurs/:id/founding-partner', authorizeRoles(Role.ADMIN), async (req, res) => {
+  try {
+    const { isFoundingPartner, discount, expiresAt } = req.body;
+    const update: Record<string, any> = {};
+    if (isFoundingPartner !== undefined) update.isFoundingPartner = isFoundingPartner;
+    if (discount !== undefined) update.foundingPartnerDiscount = discount;
+    if (expiresAt !== undefined) update.foundingPartnerExpiresAt = expiresAt ? new Date(expiresAt) : null;
+    const Promoteur = (await import('../models/Promoteur')).default;
+    const promoteur = await Promoteur.findByIdAndUpdate(req.params.id, { $set: update }, { new: true }).select('_id organizationName isFoundingPartner foundingPartnerDiscount foundingPartnerExpiresAt');
+    if (!promoteur) return res.status(404).json({ message: 'Promoteur non trouvé' });
+    return res.json({ success: true, promoteur });
+  } catch (error: any) {
+    return res.status(500).json({ message: 'Erreur mise à jour founding partner', error: error.message });
+  }
+});
 
 // Projects moderation
 router.get('/projects', AdminController.getProjects);

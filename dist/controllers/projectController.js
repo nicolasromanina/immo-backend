@@ -290,6 +290,9 @@ class ProjectController {
         try {
             const { id, mediaType } = req.params;
             const user = await User_1.default.findById(req.user.id);
+            if (!user?.promoteurProfile) {
+                return res.status(403).json({ message: 'Only promoteurs can manage project media' });
+            }
             const project = await Project_1.default.findById(id);
             if (!project) {
                 return res.status(404).json({ message: 'Project not found' });
@@ -365,6 +368,20 @@ class ProjectController {
                 uploadedAt: new Date(),
             })));
             const filtered = normalizedNew.filter(item => !existingUrls.has(item.url));
+            const { PlanLimitService } = await Promise.resolve().then(() => __importStar(require('../services/PlanLimitService')));
+            const mediaLimit = await PlanLimitService.checkProjectMediaLimit(user.promoteurProfile.toString(), project._id.toString(), mediaKey, filtered.length);
+            if (!mediaLimit.allowed) {
+                return res.status(403).json({
+                    message: 'Limite media atteinte pour votre plan',
+                    details: {
+                        mediaType: mediaKey,
+                        limit: mediaLimit.limit,
+                        current: mediaLimit.current,
+                        requested: filtered.length,
+                    },
+                    upgrade: true,
+                });
+            }
             project.media[mediaKey] = ProjectController.uniqueByUrl([...normalizedExisting, ...filtered]);
             await project.save();
             const trustScore = await TrustScoreService_1.TrustScoreService.calculateProjectTrustScore(project._id.toString());
@@ -985,6 +1002,9 @@ class ProjectController {
         try {
             const { id } = req.params;
             const user = await User_1.default.findById(req.user.id);
+            if (!user?.promoteurProfile) {
+                return res.status(403).json({ message: 'Only promoteurs can update projects' });
+            }
             const project = await Project_1.default.findById(id);
             if (!project) {
                 return res.status(404).json({ message: 'Project not found' });
@@ -1050,6 +1070,42 @@ class ProjectController {
             // Update media if provided
             if (req.body.media) {
                 const { coverImage, renderings, photos, videos, floorPlans } = req.body.media;
+                const { PlanLimitService } = await Promise.resolve().then(() => __importStar(require('../services/PlanLimitService')));
+                const { limits } = await PlanLimitService.getLimitsInfo(user.promoteurProfile.toString());
+                const currentMedia = project.media || {};
+                const nextRenderingsCount = renderings !== undefined
+                    ? (Array.isArray(renderings) ? renderings.length : 0)
+                    : (Array.isArray(currentMedia.renderings) ? currentMedia.renderings.length : 0);
+                const nextPhotosCount = photos !== undefined
+                    ? (Array.isArray(photos) ? photos.length : 0)
+                    : (Array.isArray(currentMedia.photos) ? currentMedia.photos.length : 0);
+                const nextFloorPlansCount = floorPlans !== undefined
+                    ? (Array.isArray(floorPlans) ? floorPlans.length : 0)
+                    : (Array.isArray(currentMedia.floorPlans) ? currentMedia.floorPlans.length : 0);
+                const nextVideosCount = videos !== undefined
+                    ? (Array.isArray(videos) ? videos.length : 0)
+                    : (Array.isArray(currentMedia.videos) ? currentMedia.videos.length : 0);
+                const nextMediaCount = nextRenderingsCount + nextPhotosCount + nextFloorPlansCount;
+                if (limits.maxMediaPerProject !== -1 && nextMediaCount > limits.maxMediaPerProject) {
+                    return res.status(403).json({
+                        message: 'Limite media atteinte pour votre plan',
+                        details: {
+                            limit: limits.maxMediaPerProject,
+                            requested: nextMediaCount,
+                        },
+                        upgrade: true,
+                    });
+                }
+                if (limits.maxVideos !== -1 && nextVideosCount > limits.maxVideos) {
+                    return res.status(403).json({
+                        message: 'Limite de videos atteinte pour votre plan',
+                        details: {
+                            limit: limits.maxVideos,
+                            requested: nextVideosCount,
+                        },
+                        upgrade: true,
+                    });
+                }
                 if (coverImage !== undefined)
                     updates['media.coverImage'] = coverImage;
                 if (renderings !== undefined)

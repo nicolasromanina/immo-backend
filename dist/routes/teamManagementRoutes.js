@@ -5,6 +5,8 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = require("express");
 const auth_1 = require("../middlewares/auth");
+const promoteurRbac_1 = require("../middlewares/promoteurRbac");
+const planEntitlements_1 = require("../middlewares/planEntitlements");
 const teamManagementController_1 = __importDefault(require("../controllers/teamManagementController"));
 const router = (0, express_1.Router)();
 // All routes require authentication
@@ -12,7 +14,7 @@ router.use(auth_1.authenticateJWT);
 // Get team members
 router.get('/members', teamManagementController_1.default.getTeamMembers);
 // Create/update team role
-router.post('/roles', teamManagementController_1.default.createTeamRole);
+router.post('/roles', promoteurRbac_1.requirePromoteurAccess, (0, planEntitlements_1.requireTeamMemberQuota)(), teamManagementController_1.default.createTeamRole);
 // Assign lead to team member
 router.post('/assign-lead', teamManagementController_1.default.assignLead);
 // Get team activity log
@@ -22,5 +24,5 @@ router.get('/assignments/:userId', teamManagementController_1.default.getTeamMem
 // Get member modification history
 router.get('/history/:userId', teamManagementController_1.default.getMemberModificationHistory);
 // Update team member role
-router.put('/member-role', teamManagementController_1.default.updateTeamMemberRole);
+router.put('/member-role', promoteurRbac_1.requirePromoteurAccess, teamManagementController_1.default.updateTeamMemberRole);
 exports.default = router;

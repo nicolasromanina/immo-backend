@@ -345,7 +345,7 @@ class ClientController {
                     },
                     {
                         $match: {
-                            'promoteurData.plan': { $in: ['standard', 'premium'] },
+                            'promoteurData.plan': { $in: ['verifie', 'partenaire', 'enterprise'] },
                         },
                     },
                     {
@@ -428,8 +428,11 @@ class ClientController {
             if (!organizationName || !organizationName.trim()) {
                 return res.status(400).json({ message: "Le nom de l'organisation est obligatoire" });
             }
-            if (!plan || !['basique', 'standard', 'premium'].includes(plan)) {
-                return res.status(400).json({ message: 'Plan invalide. Choisissez entre basique, standard ou premium.' });
+            if (plan === 'enterprise') {
+                return res.status(400).json({ message: 'Le plan Enterprise nécessite de contacter notre équipe commerciale.' });
+            }
+            if (!plan || !['starter', 'publie', 'verifie', 'partenaire'].includes(plan)) {
+                return res.status(400).json({ message: 'Plan invalide. Choisissez entre starter, publie, verifie ou partenaire.' });
             }
             if (!paymentMethodId) {
                 return res.status(400).json({ message: 'Méthode de paiement requise' });
@@ -476,7 +479,7 @@ class ClientController {
                 currency: 'eur',
                 product: product.id,
                 unit_amount: planPrice,
-                recurring: { interval: 'month' },
+                recurring: { interval: 'year' },
             });
             // Create the subscription
             const subscription = await stripe_1.stripe.subscriptions.create({
@@ -555,7 +558,7 @@ class ClientController {
                 user: userId,
                 organizationName,
                 organizationType: organizationType || 'individual',
-                plan: plan || 'basique',
+                plan: plan || 'starter',
                 subscriptionStatus: 'active',
                 subscriptionStartDate: new Date(),
                 kycStatus: 'pending',
@@ -606,6 +609,192 @@ class ClientController {
         catch (error) {
             console.error('Error confirming become-promoteur:', error);
             res.status(500).json({ message: 'Erreur lors de l\'activation du compte promoteur', error: error.message });
+        }
+    }
+    /**
+     * Créer une session Stripe Checkout pour devenir promoteur
+     * POST /api/client/become-promoteur-checkout
+     * Body: { plan, organizationName, organizationType? }
+     * Retourne { url } pour rediriger vers Stripe Checkout
+     */
+    static async createBecomePromoteurCheckout(req, res) {
+        try {
+            const userId = req.user.id;
+            const { plan, organizationName, organizationType } = req.body;
+            if (!plan || !['starter', 'publie', 'verifie', 'partenaire'].includes(plan)) {
+                return res.status(400).json({ message: 'Plan invalide' });
+            }
+            if (!organizationName?.trim()) {
+                return res.status(400).json({ message: "Le nom de l'organisation est obligatoire" });
+            }
+            const user = await User_1.default.findById(userId);
+            if (!user)
+                return res.status(404).json({ message: 'Utilisateur non trouvé' });
+            if (user.roles?.includes(roles_1.Role.PROMOTEUR)) {
+                return res.status(400).json({ message: 'Vous êtes déjà promoteur' });
+            }
+            const existingPromoteur = await Promoteur_1.default.findOne({ user: userId });
+            if (existingPromoteur) {
+                return res.status(400).json({ message: 'Un profil promoteur existe déjà pour cet utilisateur' });
+            }
+            // Réutiliser le customer Stripe existant ou en créer un
+            let stripeCustomerId;
+            const existingCustomers = await stripe_1.stripe.customers.list({ email: user.email, limit: 1 });
+            if (existingCustomers.data.length > 0) {
+                stripeCustomerId = existingCustomers.data[0].id;
+            }
+            else {
+                const customer = await stripe_1.stripe.customers.create({
+                    email: user.email,
+                    name: organizationName.trim(),
+                    metadata: { userId: userId.toString() },
+                });
+                stripeCustomerId = customer.id;
+            }
+            const planLabels = {
+                starter: 'Starter', publie: 'Publié', verifie: 'Vérifié', partenaire: 'Partenaire',
+            };
+            const planPrice = stripe_1.BECOME_PROMOTEUR_PRICES[plan];
+            const setupFee = stripe_1.SETUP_FEES[plan] || 0;
+            const lineItems = [{
+                    price_data: {
+                        currency: 'eur',
+                        product_data: {
+                            name: `Abonnement ${planLabels[plan]} — First Immo`,
+                            description: `Plan ${plan} — facturation annuelle`,
+                        },
+                        unit_amount: planPrice,
+                        recurring: { interval: 'year' },
+                    },
+                    quantity: 1,
+                }];
+            if (setupFee > 0) {
+                lineItems.push({
+                    price_data: {
+                        currency: 'eur',
+                        product_data: { name: `Frais de mise en place — Plan ${planLabels[plan]}` },
+                        unit_amount: setupFee,
+                    },
+                    quantity: 1,
+                });
+            }
+            const clientUrl = process.env.CLIENT_URL || 'http://localhost:8083';
+            const session = await stripe_1.stripe.checkout.sessions.create({
+                customer: stripeCustomerId,
+                payment_method_types: ['card'],
+                mode: 'subscription',
+                line_items: lineItems,
+                success_url: `${clientUrl}/devenir-promoteur?session_id={CHECKOUT_SESSION_ID}&plan=${plan}`,
+                cancel_url: `${clientUrl}/devenir-promoteur?canceled=true`,
+                metadata: {
+                    userId: userId.toString(),
+                    paymentType: 'become-promoteur',
+                    plan,
+                    organizationName: organizationName.trim(),
+                    organizationType: organizationType || 'individual',
+                },
+            });
+            console.log(`[become-promoteur-checkout] Session created for user ${userId}, plan ${plan}`);
+            res.json({ url: session.url, sessionId: session.id });
+        }
+        catch (error) {
+            console.error('Error creating become-promoteur checkout:', error);
+            res.status(500).json({ message: 'Erreur lors de la création de la session', error: error.message });
+        }
+    }
+    /**
+     * Vérifier une session Stripe Checkout "become-promoteur" et activer le compte si nécessaire
+     * GET /api/client/verify-become-promoteur-session?session_id=...
+     * Fallback si le webhook n'a pas encore activé le compte
+     */
+    static async verifyBecomePromoteurSession(req, res) {
+        try {
+            const userId = req.user.id;
+            const sessionId = req.query.session_id;
+            if (!sessionId)
+                return res.status(400).json({ message: 'session_id requis' });
+            const session = await stripe_1.stripe.checkout.sessions.retrieve(sessionId);
+            if (session.metadata?.paymentType !== 'become-promoteur') {
+                return res.status(400).json({ message: 'Session invalide (pas une session become-promoteur)' });
+            }
+            if (session.metadata.userId !== userId.toString()) {
+                return res.status(403).json({ message: 'Session non autorisée pour cet utilisateur' });
+            }
+            if (session.payment_status !== 'paid' && session.status !== 'complete') {
+                return res.status(400).json({ message: 'Paiement non complété', status: session.payment_status });
+            }
+            const user = await User_1.default.findById(userId);
+            if (!user)
+                return res.status(404).json({ message: 'Utilisateur non trouvé' });
+            // Si déjà activé par le webhook, retourner directement
+            if (user.roles?.includes(roles_1.Role.PROMOTEUR)) {
+                return res.json({ success: true, alreadyActivated: true });
+            }
+            const existingPromoteur = await Promoteur_1.default.findOne({ user: userId });
+            if (existingPromoteur) {
+                // Profil existe mais rôle manquant — corriger
+                user.roles.push(roles_1.Role.PROMOTEUR);
+                user.promoteurProfile = existingPromoteur._id;
+                await user.save();
+                return res.json({ success: true, alreadyActivated: true });
+            }
+            // Fallback : activer manuellement si le webhook n'a pas encore tourné
+            const { plan, organizationName, organizationType } = session.metadata;
+            const promoteur = new Promoteur_1.default({
+                user: userId,
+                organizationName,
+                organizationType: organizationType || 'individual',
+                plan: plan || 'starter',
+                subscriptionStatus: 'active',
+                subscriptionStartDate: new Date(),
+                kycStatus: 'pending',
+                onboardingCompleted: false,
+                onboardingProgress: 0,
+                complianceStatus: 'publie',
+                financialProofLevel: 'none',
+                trustScore: 10,
+                totalProjects: 0,
+                activeProjects: 0,
+                completedProjects: 0,
+                totalLeadsReceived: 0,
+                stripeCustomerId: session.customer,
+                stripeSubscriptionId: session.subscription,
+                paymentHistory: [{
+                        amount: stripe_1.BECOME_PROMOTEUR_PRICES[plan] || 60000,
+                        type: 'onboarding',
+                        status: 'paid',
+                        date: new Date(),
+                    }],
+            });
+            await promoteur.save();
+            user.roles.push(roles_1.Role.PROMOTEUR);
+            user.promoteurProfile = promoteur._id;
+            await user.save();
+            await Payment_1.default.create({
+                promoteur: promoteur._id,
+                amount: stripe_1.BECOME_PROMOTEUR_PRICES[plan] || 60000,
+                currency: 'eur',
+                type: 'onboarding',
+                status: 'succeeded',
+                metadata: session.metadata,
+            });
+            await NotificationService_1.NotificationService.create({
+                recipient: userId,
+                type: 'system',
+                title: 'Bienvenue, Promoteur !',
+                message: `Votre paiement a été accepté. Vous êtes maintenant promoteur sur la plateforme (plan ${plan}).`,
+                priority: 'high',
+                channels: { inApp: true, email: true },
+            });
+            console.log(`[verify-become-promoteur] User ${userId} activated as promoteur: ${organizationName} (plan ${plan})`);
+            res.json({ success: true, alreadyActivated: false, plan });
+        }
+        catch (error) {
+            console.error('Error verifying become-promoteur session:', error);
+            if (error.type === 'StripeInvalidRequestError') {
+                return res.status(400).json({ message: 'Session Stripe invalide ou expirée', error: error.message });
+            }
+            res.status(500).json({ message: 'Erreur lors de la vérification de la session', error: error.message });
         }
     }
 }

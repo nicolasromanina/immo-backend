@@ -174,7 +174,7 @@ class PromoteurController {
                 user: req.user.id,
                 organizationName,
                 organizationType: organizationType || 'small',
-                plan: 'basique',
+                plan: 'starter',
                 subscriptionStatus: 'trial',
                 trialEndsAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days trial
                 kycStatus: 'pending',
@@ -432,6 +432,14 @@ class PromoteurController {
             if (!promoteur) {
                 return res.status(404).json({ message: 'Promoteur not found' });
             }
+            const { PlanLimitService } = await Promise.resolve().then(() => __importStar(require('../services/PlanLimitService')));
+            const canAddTeamMember = await PlanLimitService.checkTeamMemberLimit(promoteur._id.toString());
+            if (!canAddTeamMember) {
+                return res.status(403).json({
+                    message: 'Limite de membres d equipe atteinte pour votre plan',
+                    upgrade: true,
+                });
+            }
             // Check if user exists
             const teamUser = await User_1.default.findById(userId);
             if (!teamUser) {
@@ -470,18 +478,35 @@ class PromoteurController {
                 return res.status(404).json({ message: 'Promoteur not found' });
             }
             // Initialize onboarding checklist if it's empty
+            let shouldPersist = false;
             if (!promoteur.onboardingChecklist || promoteur.onboardingChecklist.length === 0) {
                 promoteur.onboardingChecklist = [
-                    { code: 'org_info', item: 'Compléter les informations de l\'organisation', completed: true, completedAt: new Date() },
-                    { code: 'kyc', item: 'Vérifier l\'identité (KYC)', completed: false },
-                    { code: 'company_docs', item: 'Uploader les documents de société', completed: false },
-                    { code: 'financial_proof', item: 'Prouver la capacité financière', completed: false },
-                    { code: 'first_project', item: 'Créer le premier projet', completed: false },
+                    { code: 'org_info', item: 'Completer les informations de l\'organisation', completed: true, completedAt: new Date() },
+                    { code: 'kyc', item: 'Verifier l\'identite (KYC)', completed: false },
+                    { code: 'company_docs', item: 'Uploader les documents de societe', completed: false },
+                    { code: 'financial_proof', item: 'Prouver la capacite financiere', completed: false },
+                    { code: 'first_project', item: 'Creer le premier projet', completed: false },
                 ];
+                shouldPersist = true;
             }
             // Always recalculate to ensure data is up-to-date after admin approvals
             OnboardingService_1.OnboardingService.recalculate(promoteur);
-            await promoteur.save();
+            shouldPersist = true;
+            if (shouldPersist) {
+                try {
+                    await Promoteur_1.default.findByIdAndUpdate(promoteur._id, {
+                        $set: {
+                            onboardingChecklist: promoteur.onboardingChecklist,
+                            onboardingProgress: promoteur.onboardingProgress,
+                            onboardingCompleted: promoteur.onboardingCompleted,
+                        },
+                    });
+                }
+                catch (persistError) {
+                    // Do not fail the GET endpoint if persistence fails.
+                    console.error('Error persisting onboarding checklist snapshot:', persistError);
+                }
+            }
             res.json({
                 checklist: promoteur.onboardingChecklist,
                 onboardingProgress: promoteur.onboardingProgress,
@@ -636,7 +661,10 @@ class PromoteurController {
      */
     static async requestUpgrade(req, res) {
         try {
-            const { newPlan } = req.body; // 'standard' or 'premium'
+            const { newPlan } = req.body; // 'publie', 'verifie', 'partenaire'
+            if (newPlan === 'enterprise') {
+                return res.status(400).json({ message: 'Le plan Enterprise nécessite de contacter notre équipe commerciale.' });
+            }
             const user = await User_1.default.findById(req.user.id);
             if (!user?.promoteurProfile) {
                 return res.status(404).json({ message: 'Promoteur profile not found' });
@@ -645,23 +673,36 @@ class PromoteurController {
             if (!promoteur) {
                 return res.status(404).json({ message: 'Promoteur not found' });
             }
-            // Cancel any existing plan change request
+            // Cancel any existing plan change request without full-document validation
             if (promoteur.planChangeRequest) {
+                await Promoteur_1.default.findByIdAndUpdate(promoteur._id, {
+                    $unset: { planChangeRequest: 1 }
+                });
                 promoteur.planChangeRequest = undefined;
-                await promoteur.save();
             }
-            // Validate upgrade path
-            const planHierarchy = ['basique', 'standard', 'premium'];
-            const currentIndex = planHierarchy.indexOf(promoteur.plan);
-            const newIndex = planHierarchy.indexOf(newPlan);
-            if (newIndex <= currentIndex) {
+            // Validate upgrade path using PLAN_HIERARCHY
+            const { PLAN_HIERARCHY } = await Promise.resolve().then(() => __importStar(require('../config/planLimits')));
+            const currentLevel = PLAN_HIERARCHY[promoteur.plan] ?? -1;
+            const newLevel = PLAN_HIERARCHY[newPlan] ?? -1;
+            if (newLevel <= currentLevel) {
                 return res.status(400).json({ message: 'Invalid upgrade plan' });
             }
             // Instead of auto-approving, create a payment session for the upgrade
             // Import required modules
-            const { stripe, SUBSCRIPTION_PRICES } = await Promise.resolve().then(() => __importStar(require('../config/stripe')));
+            const { stripe, SUBSCRIPTION_PRICES, SETUP_FEES, BILLING_INTERVAL } = await Promise.resolve().then(() => __importStar(require('../config/stripe')));
             // Créer ou récupérer le customer Stripe
             let stripeCustomerId = promoteur.stripeCustomerId;
+            if (stripeCustomerId) {
+                try {
+                    const existingCustomer = await stripe.customers.retrieve(stripeCustomerId);
+                    if (existingCustomer?.deleted) {
+                        stripeCustomerId = undefined;
+                    }
+                }
+                catch {
+                    stripeCustomerId = undefined;
+                }
+            }
             if (!stripeCustomerId) {
                 const customer = await stripe.customers.create({
                     email: user.email,
@@ -684,24 +725,34 @@ class PromoteurController {
             }
             const promoteurUrl = process.env.PROMOTEUR_URL || 'http://localhost:8081';
             // Create checkout session for the upgrade payment
-            const session = await stripe.checkout.sessions.create({
+            const planLabels = {
+                starter: 'Starter',
+                publie: 'Publié',
+                verifie: 'Vérifié',
+                partenaire: 'Partenaire',
+            };
+            const setupFee = SETUP_FEES[newPlan] || 0;
+            const upgradeSessionParams = {
                 customer: stripeCustomerId,
                 payment_method_types: ['card'],
-                mode: 'payment', // One-time payment for upgrade
+                mode: 'subscription',
                 line_items: [
                     {
                         price_data: {
                             currency: 'eur',
                             product_data: {
-                                name: `Upgrade vers le plan ${newPlan === 'standard' ? 'Standard' : 'Premium'}`,
-                                description: `Abonnement mensuel au plan ${newPlan}`,
+                                name: `Upgrade vers le plan ${planLabels[newPlan] || newPlan}`,
+                                description: `Abonnement annuel au plan ${newPlan}`,
                             },
                             unit_amount: newPrice,
+                            recurring: {
+                                interval: BILLING_INTERVAL,
+                            },
                         },
                         quantity: 1,
                     },
                 ],
-                success_url: `${promoteurUrl}/promoteur/pricing?upgrade_success=true&new_plan=${newPlan}`,
+                success_url: `${promoteurUrl}/promoteur/pricing?upgrade_success=true&new_plan=${newPlan}&session_id={CHECKOUT_SESSION_ID}`,
                 cancel_url: `${promoteurUrl}/promoteur/pricing`,
                 metadata: {
                     userId: user._id.toString(),
@@ -709,8 +760,22 @@ class PromoteurController {
                     upgradeFrom: promoteur.plan,
                     upgradeTo: newPlan,
                     paymentType: 'upgrade',
+                    setupFeeAmount: setupFee.toString(),
                 },
-            });
+            };
+            if (setupFee > 0) {
+                upgradeSessionParams.line_items.push({
+                    price_data: {
+                        currency: 'eur',
+                        product_data: {
+                            name: `Frais de mise en place - Plan ${planLabels[newPlan] || newPlan}`,
+                        },
+                        unit_amount: setupFee,
+                    },
+                    quantity: 1,
+                });
+            }
+            const session = await stripe.checkout.sessions.create(upgradeSessionParams);
             res.json({ sessionId: session.id, url: session.url });
         }
         catch (error) {
@@ -732,7 +797,14 @@ class PromoteurController {
             if (!promoteur) {
                 return res.status(404).json({ message: 'Promoteur not found' });
             }
-            // Validate downgrade
+            // Validate downgrade direction using PLAN_HIERARCHY
+            const { PLAN_HIERARCHY } = await Promise.resolve().then(() => __importStar(require('../config/planLimits')));
+            const currentLevel = PLAN_HIERARCHY[promoteur.plan] ?? -1;
+            const targetLevel = PLAN_HIERARCHY[targetPlan] ?? -1;
+            if (targetLevel >= currentLevel) {
+                return res.status(400).json({ message: 'Le plan cible doit être inférieur au plan actuel pour un downgrade.' });
+            }
+            // Validate downgrade capacity
             const { PlanLimitService } = await Promise.resolve().then(() => __importStar(require('../services/PlanLimitService')));
             const validation = await PlanLimitService.validatePlanChange(promoteur._id.toString(), targetPlan);
             if (!validation.valid) {
@@ -797,15 +869,15 @@ class PromoteurController {
             if (!user?.promoteurProfile) {
                 return res.status(404).json({ message: 'Promoteur profile not found' });
             }
-            const promoteur = await Promoteur_1.default.findById(user.promoteurProfile);
+            const promoteur = await Promoteur_1.default.findOneAndUpdate({
+                _id: user.promoteurProfile,
+                'planChangeRequest.status': 'pending'
+            }, {
+                $unset: { planChangeRequest: 1 }
+            }, { new: true });
             if (!promoteur) {
-                return res.status(404).json({ message: 'Promoteur not found' });
+                return res.json({ success: true, alreadyCleared: true });
             }
-            if (!promoteur.planChangeRequest || promoteur.planChangeRequest.status !== 'pending') {
-                return res.status(400).json({ message: 'No pending plan change request' });
-            }
-            promoteur.planChangeRequest = undefined;
-            await promoteur.save();
             await AuditLogService_1.AuditLogService.logFromRequest(req, 'cancel_plan_change', 'promoteur', 'Cancelled pending plan change request', 'Promoteur', promoteur._id.toString());
             res.json({ success: true });
         }

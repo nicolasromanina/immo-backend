@@ -28,6 +28,9 @@ router.post('/report', ClientController.reportContent);
 router.get('/promoteur-status', ClientController.getPromoteurStatus);
 router.post('/become-promoteur', ClientController.createBecomePromoteurSession);
 router.post('/confirm-become-promoteur', ClientController.confirmBecomePromoteur);
+// Become Promoteur — Stripe Checkout (nouvelle approche)
+router.post('/become-promoteur-checkout', ClientController.createBecomePromoteurCheckout);
+router.get('/verify-become-promoteur-session', ClientController.verifyBecomePromoteurSession);
 
 // Notifications
 router.get('/notifications', ClientController.getNotifications);

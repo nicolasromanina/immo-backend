@@ -4,8 +4,12 @@ exports.terminateManagedService = exports.getAllManagedServices = exports.getMyM
 const ManagedServiceManager_1 = require("../services/ManagedServiceManager");
 const requestManagedService = async (req, res) => {
     try {
+        const promoteurId = req.user?.promoteurProfile?.toString?.() || req.user?.promoteurProfile || req.body.promoteurId;
+        if (!promoteurId) {
+            return res.status(403).json({ message: 'Promoteur access required' });
+        }
         const service = await ManagedServiceManager_1.ManagedServiceManager.requestManagedService({
-            promoteurId: req.body.promoteurId || req.user.id,
+            promoteurId,
             ...req.body,
         });
         res.status(201).json(service);
@@ -41,7 +45,11 @@ const logActivity = async (req, res) => {
 exports.logActivity = logActivity;
 const getMyManagedServices = async (req, res) => {
     try {
-        const services = await ManagedServiceManager_1.ManagedServiceManager.getForPromoteur(req.params.promoteurId || req.user.id);
+        const promoteurId = req.user?.promoteurProfile?.toString?.() || req.user?.promoteurProfile || req.params.promoteurId;
+        if (!promoteurId) {
+            return res.status(403).json({ message: 'Promoteur access required' });
+        }
+        const services = await ManagedServiceManager_1.ManagedServiceManager.getForPromoteur(promoteurId);
         res.json(services);
     }
     catch (error) {

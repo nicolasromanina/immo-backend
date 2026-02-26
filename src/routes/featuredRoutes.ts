@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { FeaturedController } from '../controllers/featuredController';
 import { authenticateJWT, authorizeRoles } from '../middlewares/auth';
+import { requirePlanCapability } from '../middlewares/planEntitlements';
 import { Role } from '../config/roles';
 
 const router = Router();
@@ -12,9 +13,9 @@ router.get('/new', FeaturedController.getNewProjects);
 router.post('/track/click', FeaturedController.trackClick);
 
 // Promoteur endpoints
-router.post('/slots', authenticateJWT, authorizeRoles(Role.PROMOTEUR, Role.ADMIN), FeaturedController.createFeaturedSlot);
-router.get('/slots/:id/performance', authenticateJWT, authorizeRoles(Role.PROMOTEUR, Role.ADMIN), FeaturedController.getSlotPerformance);
-router.patch('/slots/:id/cancel', authenticateJWT, authorizeRoles(Role.PROMOTEUR, Role.ADMIN), FeaturedController.cancelFeaturedSlot);
+router.post('/slots', authenticateJWT, authorizeRoles(Role.PROMOTEUR, Role.ADMIN), requirePlanCapability('featuredPlacement'), FeaturedController.createFeaturedSlot);
+router.get('/slots/:id/performance', authenticateJWT, authorizeRoles(Role.PROMOTEUR, Role.ADMIN), requirePlanCapability('featuredPlacement'), FeaturedController.getSlotPerformance);
+router.patch('/slots/:id/cancel', authenticateJWT, authorizeRoles(Role.PROMOTEUR, Role.ADMIN), requirePlanCapability('featuredPlacement'), FeaturedController.cancelFeaturedSlot);
 
 // Admin endpoints
 router.get('/admin/slots', authenticateJWT, authorizeRoles(Role.ADMIN), FeaturedController.getAllSlots);

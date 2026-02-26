@@ -44,9 +44,13 @@ const PromoteurSchema = new mongoose_1.Schema({
     },
     plan: {
         type: String,
-        enum: ['basique', 'standard', 'premium'],
-        default: 'basique'
+        enum: ['starter', 'publie', 'verifie', 'partenaire', 'enterprise'],
+        default: 'starter'
     },
+    isFoundingPartner: { type: Boolean, default: false },
+    foundingPartnerDiscount: { type: Number, default: 0, min: 0, max: 100 },
+    foundingPartnerExpiresAt: { type: Date },
+    isLegacyPlan: { type: Boolean, default: false },
     subscriptionStatus: {
         type: String,
         enum: ['trial', 'active', 'expired', 'suspended'],
@@ -150,7 +154,7 @@ const PromoteurSchema = new mongoose_1.Schema({
             date: { type: Date, default: Date.now },
         }],
     planChangeRequest: {
-        requestedPlan: { type: String, enum: ['basique', 'standard', 'premium', null] },
+        requestedPlan: { type: String, enum: ['starter', 'publie', 'verifie', 'partenaire', 'enterprise', null] },
         requestType: { type: String, enum: ['upgrade', 'downgrade', 'cancel'] },
         requestedAt: { type: Date, default: Date.now },
         effectiveDate: { type: Date },

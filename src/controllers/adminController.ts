@@ -1469,18 +1469,18 @@ export class AdminController {
         );
 
         // Update promoteur
-        promoteur.plan = 'basique';
+        promoteur.plan = 'starter';
         promoteur.subscriptionStatus = 'expired';
         promoteur.subscriptionEndDate = new Date();
 
       } else if (requestType === 'downgrade') {
         // Apply downgrade
-        promoteur.plan = requestedPlan as 'basique' | 'standard' | 'premium';
+        promoteur.plan = requestedPlan as 'starter' | 'publie' | 'verifie' | 'partenaire' | 'enterprise';
         promoteur.subscriptionEndDate = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000); // Extend for another year
 
       } else if (requestType === 'upgrade') {
         // Apply upgrade
-        promoteur.plan = requestedPlan as 'basique' | 'standard' | 'premium';
+        promoteur.plan = requestedPlan as 'starter' | 'publie' | 'verifie' | 'partenaire' | 'enterprise';
         promoteur.subscriptionEndDate = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000);
       }
 

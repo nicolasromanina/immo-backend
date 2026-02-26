@@ -1,5 +1,7 @@
 import { Router } from 'express';
 import { authenticateJWT } from '../middlewares/auth';
+import { requirePromoteurAccess } from '../middlewares/promoteurRbac';
+import { requireTeamMemberQuota } from '../middlewares/planEntitlements';
 import teamManagementController from '../controllers/teamManagementController';
 
 const router = Router();
@@ -11,7 +13,7 @@ router.use(authenticateJWT);
 router.get('/members', teamManagementController.getTeamMembers);
 
 // Create/update team role
-router.post('/roles', teamManagementController.createTeamRole);
+router.post('/roles', requirePromoteurAccess, requireTeamMemberQuota(), teamManagementController.createTeamRole);
 
 // Assign lead to team member
 router.post('/assign-lead', teamManagementController.assignLead);
@@ -26,6 +28,6 @@ router.get('/assignments/:userId', teamManagementController.getTeamMemberAssignm
 router.get('/history/:userId', teamManagementController.getMemberModificationHistory);
 
 // Update team member role
-router.put('/member-role', teamManagementController.updateTeamMemberRole);
+router.put('/member-role', requirePromoteurAccess, teamManagementController.updateTeamMemberRole);
 
 export default router;

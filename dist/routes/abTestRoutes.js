@@ -3,10 +3,12 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = require("express");
 const ABTestController_1 = require("../controllers/ABTestController");
 const auth_1 = require("../middlewares/auth");
+const planEntitlements_1 = require("../middlewares/planEntitlements");
 const roles_1 = require("../config/roles");
 const router = (0, express_1.Router)();
 // All A/B Testing routes require authentication and promoteur role
 router.use(auth_1.authenticateJWT, (0, auth_1.authorizeRoles)(roles_1.Role.PROMOTEUR, roles_1.Role.ADMIN));
+router.use((0, planEntitlements_1.requirePlanCapability)('abTesting'));
 // Get all tests for the authenticated user
 router.get('/', ABTestController_1.ABTestController.getTests);
 // Create a new A/B test
