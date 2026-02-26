@@ -4,8 +4,13 @@ import { AuthRequest } from '../middlewares/auth';
 
 export const requestManagedService = async (req: AuthRequest, res: Response) => {
   try {
+    const promoteurId = req.user?.promoteurProfile?.toString?.() || req.user?.promoteurProfile || req.body.promoteurId;
+    if (!promoteurId) {
+      return res.status(403).json({ message: 'Promoteur access required' });
+    }
+
     const service = await ManagedServiceManager.requestManagedService({
-      promoteurId: req.body.promoteurId || req.user!.id,
+      promoteurId,
       ...req.body,
     });
     res.status(201).json(service);
@@ -41,7 +46,12 @@ export const logActivity = async (req: AuthRequest, res: Response) => {
 
 export const getMyManagedServices = async (req: AuthRequest, res: Response) => {
   try {
-    const services = await ManagedServiceManager.getForPromoteur(req.params.promoteurId || req.user!.id);
+    const promoteurId = req.user?.promoteurProfile?.toString?.() || req.user?.promoteurProfile || req.params.promoteurId;
+    if (!promoteurId) {
+      return res.status(403).json({ message: 'Promoteur access required' });
+    }
+
+    const services = await ManagedServiceManager.getForPromoteur(promoteurId);
     res.json(services);
   } catch (error: any) {
     res.status(500).json({ message: error.message });

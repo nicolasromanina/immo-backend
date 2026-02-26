@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { authenticateJWT, authorizeRoles } from '../middlewares/auth';
 import { Role } from '../config/roles';
+import { requirePlanCapability } from '../middlewares/planEntitlements';
 import * as adsController from '../controllers/adsController';
 
 const router = Router();
@@ -12,11 +13,11 @@ router.get('/active', adsController.getActiveAds);
 router.get('/:id/stats/7days', adsController.get7DayStats);
 
 // Promoteur routes
-router.post('/', authenticateJWT, adsController.createAd);
-router.get('/my', authenticateJWT, adsController.getMyAds);
-router.put('/:id/submit', authenticateJWT, adsController.submitAdForReview);
-router.put('/:id/pause', authenticateJWT, adsController.pauseAd);
-router.put('/:id/resume', authenticateJWT, adsController.resumeAd);
+router.post('/', authenticateJWT, requirePlanCapability('adsCampaigns'), adsController.createAd);
+router.get('/my', authenticateJWT, requirePlanCapability('adsCampaigns'), adsController.getMyAds);
+router.put('/:id/submit', authenticateJWT, requirePlanCapability('adsCampaigns'), adsController.submitAdForReview);
+router.put('/:id/pause', authenticateJWT, requirePlanCapability('adsCampaigns'), adsController.pauseAd);
+router.put('/:id/resume', authenticateJWT, requirePlanCapability('adsCampaigns'), adsController.resumeAd);
 
 // Admin routes
 router.get('/', authenticateJWT, authorizeRoles(Role.ADMIN, Role.MANAGER), adsController.getAllAds);

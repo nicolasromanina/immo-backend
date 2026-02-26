@@ -9,6 +9,7 @@ const bcrypt_1 = __importDefault(require("bcrypt"));
 const DocumentShareToken_1 = __importDefault(require("../models/DocumentShareToken"));
 const Document_1 = __importDefault(require("../models/Document"));
 const Project_1 = __importDefault(require("../models/Project"));
+const PlanLimitService_1 = require("./PlanLimitService");
 class DataRoomService {
     static async createShareLink(documentId, createdBy, options = {}) {
         const document = await Document_1.default.findById(documentId);
@@ -27,6 +28,10 @@ class DataRoomService {
         });
         if (!promoteur) {
             throw new Error('Unauthorized to share this document');
+        }
+        const canUseDataRoom = await PlanLimitService_1.PlanLimitService.checkCapability(project.promoteur.toString(), 'dataRoom');
+        if (!canUseDataRoom) {
+            throw new Error('Data room sharing is not available on your current plan');
         }
         const token = (0, nanoid_1.nanoid)(32);
         let hashedPassword;
@@ -122,6 +127,10 @@ class DataRoomService {
         });
         if (!promoteur) {
             throw new Error('Unauthorized to create data room for this project');
+        }
+        const canUseDataRoom = await PlanLimitService_1.PlanLimitService.checkCapability(project.promoteur.toString(), 'dataRoom');
+        if (!canUseDataRoom) {
+            throw new Error('Data room is not available on your current plan');
         }
         // Verify all documents belong to the project
         const documents = await Document_1.default.find({

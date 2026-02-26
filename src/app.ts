@@ -57,6 +57,7 @@ import aiAssistantRoutes from './routes/aiAssistantRoutes';
 import partnerWorkflowRoutes from './routes/partnerWorkflowRoutes';
 import teamManagementRoutes from './routes/teamManagementRoutes';
 import abTestRoutes from './routes/abTestRoutes';
+import reviewRoutes from './routes/reviewRoutes';
 import swaggerUi from 'swagger-ui-express';
 import swaggerSpec from './config/swagger';
 import corsOptions, { logAllowedOrigins } from './config/cors';
@@ -174,6 +175,7 @@ app.use('/api/og', openGraphRoutes);
 app.use('/api/ai-assistant', aiAssistantRoutes);
 app.use('/api/partner-workflows', partnerWorkflowRoutes);
 app.use('/api/ab-tests', abTestRoutes);
+app.use('/api/reviews', reviewRoutes);
 
 // API Documentation
 app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));

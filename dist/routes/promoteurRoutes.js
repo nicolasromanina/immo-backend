@@ -9,6 +9,7 @@ const promoteurController_1 = require("../controllers/promoteurController");
 const promoteurDocumentController_1 = require("../controllers/promoteurDocumentController");
 const auth_1 = require("../middlewares/auth");
 const promoteurRbac_1 = require("../middlewares/promoteurRbac");
+const planEntitlements_1 = require("../middlewares/planEntitlements");
 const router = (0, express_1.Router)();
 const path_1 = __importDefault(require("path"));
 const storage = multer_1.default.diskStorage({
@@ -70,8 +71,8 @@ router.post('/upload', upload.single('file'), promoteurController_1.PromoteurCon
 router.post('/upload-doc', upload.single('file'), promoteurDocumentController_1.PromoteurDocumentController.uploadDocumentFile);
 router.post('/compliance/request', (0, promoteurRbac_1.requirePromoteurPermission)('editSettings'), promoteurController_1.PromoteurController.requestComplianceUpgrade);
 // Analytics endpoints
-router.get('/analytics/dashboard', (0, promoteurRbac_1.requirePromoteurPermission)('viewAnalytics'), promoteurController_1.PromoteurController.getAnalytics);
-router.get('/analytics/leads-timeline', (0, promoteurRbac_1.requirePromoteurPermission)('viewAnalytics'), promoteurController_1.PromoteurController.getLeadsTimeline);
-router.get('/analytics/revenue-forecast', (0, promoteurRbac_1.requirePromoteurPermission)('viewAnalytics'), promoteurController_1.PromoteurController.getRevenueForecast);
-router.get('/analytics/growth-dashboard', (0, promoteurRbac_1.requirePromoteurPermission)('viewAnalytics'), promoteurController_1.PromoteurController.getGrowthDashboard);
+router.get('/analytics/dashboard', (0, promoteurRbac_1.requirePromoteurPermission)('viewAnalytics'), (0, planEntitlements_1.requirePlanCapability)('advancedAnalytics'), promoteurController_1.PromoteurController.getAnalytics);
+router.get('/analytics/leads-timeline', (0, promoteurRbac_1.requirePromoteurPermission)('viewAnalytics'), (0, planEntitlements_1.requirePlanCapability)('advancedAnalytics'), promoteurController_1.PromoteurController.getLeadsTimeline);
+router.get('/analytics/revenue-forecast', (0, promoteurRbac_1.requirePromoteurPermission)('viewAnalytics'), (0, planEntitlements_1.requirePlanCapability)('advancedAnalytics'), promoteurController_1.PromoteurController.getRevenueForecast);
+router.get('/analytics/growth-dashboard', (0, promoteurRbac_1.requirePromoteurPermission)('viewAnalytics'), (0, planEntitlements_1.requirePlanCapability)('advancedAnalytics'), promoteurController_1.PromoteurController.getGrowthDashboard);
 exports.default = router;

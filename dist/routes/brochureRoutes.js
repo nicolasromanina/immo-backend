@@ -3,6 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = require("express");
 const brochureController_1 = require("../controllers/brochureController");
 const auth_1 = require("../middlewares/auth");
+const planEntitlements_1 = require("../middlewares/planEntitlements");
 const roles_1 = require("../config/roles");
 const router = (0, express_1.Router)();
 // ==================== Public Endpoints ====================
@@ -17,9 +18,9 @@ router.post('/track/download/:id', brochureController_1.BrochureController.track
 router.post('/:id/whatsapp', auth_1.authenticateJWT, brochureController_1.BrochureController.sendViaWhatsApp);
 // ==================== Promoteur Endpoints ====================
 // Get my brochure requests
-router.get('/my-requests', auth_1.authenticateJWT, (0, auth_1.authorizeRoles)(roles_1.Role.PROMOTEUR), brochureController_1.BrochureController.getMyRequests);
+router.get('/my-requests', auth_1.authenticateJWT, (0, auth_1.authorizeRoles)(roles_1.Role.PROMOTEUR), (0, planEntitlements_1.requirePlanCapability)('brochureAnalytics'), brochureController_1.BrochureController.getMyRequests);
 // Get brochure stats
-router.get('/stats', auth_1.authenticateJWT, (0, auth_1.authorizeRoles)(roles_1.Role.PROMOTEUR), brochureController_1.BrochureController.getStats);
+router.get('/stats', auth_1.authenticateJWT, (0, auth_1.authorizeRoles)(roles_1.Role.PROMOTEUR), (0, planEntitlements_1.requirePlanCapability)('brochureAnalytics'), brochureController_1.BrochureController.getStats);
 // Get project brochure requests
-router.get('/project/:projectId', auth_1.authenticateJWT, (0, auth_1.authorizeRoles)(roles_1.Role.PROMOTEUR), brochureController_1.BrochureController.getProjectRequests);
+router.get('/project/:projectId', auth_1.authenticateJWT, (0, auth_1.authorizeRoles)(roles_1.Role.PROMOTEUR), (0, planEntitlements_1.requirePlanCapability)('brochureAnalytics'), brochureController_1.BrochureController.getProjectRequests);
 exports.default = router;

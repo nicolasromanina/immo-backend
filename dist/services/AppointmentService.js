@@ -10,6 +10,7 @@ const Lead_1 = __importDefault(require("../models/Lead"));
 const Project_1 = __importDefault(require("../models/Project"));
 const SupportTicket_1 = __importDefault(require("../models/SupportTicket"));
 const NotificationService_1 = require("./NotificationService");
+const PlanLimitService_1 = require("./PlanLimitService");
 class AppointmentService {
     static buildTicketDate(ticket) {
         const date = ticket.appointmentDate || '';
@@ -125,6 +126,10 @@ class AppointmentService {
      * Create a new appointment
      */
     static async createAppointment(data) {
+        const canScheduleAppointments = await PlanLimitService_1.PlanLimitService.checkCapability(data.promoteurId, 'calendarAppointments');
+        if (!canScheduleAppointments) {
+            throw new Error('Appointment scheduling is not available on this plan');
+        }
         const appointment = new Appointment_1.default({
             promoteur: data.promoteurId,
             project: data.projectId,

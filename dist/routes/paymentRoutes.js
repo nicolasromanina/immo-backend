@@ -11,7 +11,10 @@ const router = express_1.default.Router();
 // Routes protégées pour les promoteurs
 router.post('/create-checkout-session', auth_1.authenticateJWT, (0, auth_1.authorizeRoles)(roles_1.Role.PROMOTEUR), paymentController_1.createCheckoutSession);
 router.post('/create-boost-session', auth_1.authenticateJWT, (0, auth_1.authorizeRoles)(roles_1.Role.PROMOTEUR), paymentController_1.createBoostCheckoutSession);
+router.post('/create-retainer-session', auth_1.authenticateJWT, (0, auth_1.authorizeRoles)(roles_1.Role.PROMOTEUR), paymentController_1.createRetainerSession);
+router.post('/create-success-fee-session', auth_1.authenticateJWT, (0, auth_1.authorizeRoles)(roles_1.Role.PROMOTEUR), paymentController_1.createSuccessFeeSession);
 router.get('/verify-boost-session', auth_1.authenticateJWT, paymentController_1.verifyBoostSession);
+router.get('/verify-upgrade-session', auth_1.authenticateJWT, (0, auth_1.authorizeRoles)(roles_1.Role.PROMOTEUR), paymentController_1.verifyUpgradeSession);
 router.get('/get-token-from-boost-session', auth_1.authenticateJWT, paymentController_1.getTokenFromBoostSession);
 router.post('/cancel-subscription', auth_1.authenticateJWT, (0, auth_1.authorizeRoles)(roles_1.Role.PROMOTEUR), paymentController_1.cancelSubscription);
 router.get('/subscription', auth_1.authenticateJWT, (0, auth_1.authorizeRoles)(roles_1.Role.PROMOTEUR), paymentController_1.getCurrentSubscription);

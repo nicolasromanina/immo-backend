@@ -35,7 +35,7 @@ export const startPlanChangeJob = () => {
             );
 
             // Update promoteur
-            promoteur.plan = 'basique';
+            promoteur.plan = 'starter';
             promoteur.subscriptionStatus = 'expired';
             promoteur.subscriptionEndDate = now;
 
@@ -51,7 +51,7 @@ export const startPlanChangeJob = () => {
 
           } else if (requestType === 'downgrade') {
             // Apply downgrade
-            promoteur.plan = requestedPlan as 'basique' | 'standard' | 'premium';
+            promoteur.plan = requestedPlan as 'starter' | 'publie' | 'verifie' | 'partenaire' | 'enterprise';
 
             await AuditLogService.log({
               actor: 'system',

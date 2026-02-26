@@ -4,6 +4,7 @@ import { ProjectController } from '../controllers/projectController';
 import { authenticateJWT } from '../middlewares/auth';
 import { requirePromoteurAccess, requirePromoteurPermission } from '../middlewares/promoteurRbac';
 import { validateUpload } from '../middlewares/uploadValidation';
+import { requireProjectQuota, requireMediaQuota } from '../middlewares/planEntitlements';
 
 const upload = multer({ storage: multer.memoryStorage() });
 
@@ -17,7 +18,7 @@ router.get('/:identifier', ProjectController.getProject);
 router.get('/:id/media/:mediaType', ProjectController.getProjectMedia);
 
 // Protected routes
-router.post('/', authenticateJWT, requirePromoteurAccess, requirePromoteurPermission('createProjects'), ProjectController.createProject);
+router.post('/', authenticateJWT, requirePromoteurAccess, requirePromoteurPermission('createProjects'), requireProjectQuota(), ProjectController.createProject);
 router.put('/:id', authenticateJWT, requirePromoteurAccess, requirePromoteurPermission('editProjects'), ProjectController.updateProject);
 router.get('/:id/changes-log', authenticateJWT, ProjectController.getChangesLog);
 router.delete('/:id', authenticateJWT, requirePromoteurAccess, requirePromoteurPermission('deleteProjects'), ProjectController.deleteProject);
@@ -32,11 +33,12 @@ router.post('/:id/media/cover',
   validateUpload({ allowedCategories: ['image'], maxFileSize: 20 * 1024 * 1024, requireFile: true, fieldName: 'file' }),
   ProjectController.setProjectCoverImage
 );
-router.post('/:id/media/:mediaType', 
-  authenticateJWT, 
+router.post('/:id/media/:mediaType',
+  authenticateJWT,
   requirePromoteurAccess,
   requirePromoteurPermission('editProjects'),
   upload.single('file'),
+  requireMediaQuota(),
   ProjectController.addProjectMedia
 );
 router.delete('/:id/media/:mediaType', authenticateJWT, requirePromoteurAccess, requirePromoteurPermission('editProjects'), ProjectController.removeProjectMedia);

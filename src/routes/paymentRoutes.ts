@@ -2,11 +2,14 @@ import express from 'express';
 import {
   createCheckoutSession,
   createBoostCheckoutSession,
+  createRetainerSession,
+  createSuccessFeeSession,
   handleStripeWebhook,
   cancelSubscription,
   getCurrentSubscription,
   getPaymentHistory,
   verifyBoostSession,
+  verifyUpgradeSession,
   getTokenFromBoostSession,
   getPendingBoosts,
   approveBoost,
@@ -20,7 +23,10 @@ const router = express.Router();
 // Routes protégées pour les promoteurs
 router.post('/create-checkout-session', authenticateJWT, authorizeRoles(Role.PROMOTEUR), createCheckoutSession);
 router.post('/create-boost-session', authenticateJWT, authorizeRoles(Role.PROMOTEUR), createBoostCheckoutSession);
+router.post('/create-retainer-session', authenticateJWT, authorizeRoles(Role.PROMOTEUR), createRetainerSession);
+router.post('/create-success-fee-session', authenticateJWT, authorizeRoles(Role.PROMOTEUR), createSuccessFeeSession);
 router.get('/verify-boost-session', authenticateJWT, verifyBoostSession);
+router.get('/verify-upgrade-session', authenticateJWT, authorizeRoles(Role.PROMOTEUR), verifyUpgradeSession);
 router.get('/get-token-from-boost-session', authenticateJWT, getTokenFromBoostSession);
 router.post('/cancel-subscription', authenticateJWT, authorizeRoles(Role.PROMOTEUR), cancelSubscription);
 router.get('/subscription', authenticateJWT, authorizeRoles(Role.PROMOTEUR), getCurrentSubscription);

@@ -4,6 +4,7 @@ import { PromoteurController } from '../controllers/promoteurController';
 import { PromoteurDocumentController } from '../controllers/promoteurDocumentController';
 import { authenticateJWT } from '../middlewares/auth';
 import { requirePromoteurAccess, requirePromoteurPermission } from '../middlewares/promoteurRbac';
+import { requirePlanCapability } from '../middlewares/planEntitlements';
 
 const router = Router();
 import path from 'path';
@@ -78,9 +79,9 @@ router.post('/upload-doc', upload.single('file'), PromoteurDocumentController.up
 router.post('/compliance/request', requirePromoteurPermission('editSettings'), PromoteurController.requestComplianceUpgrade);
 
 // Analytics endpoints
-router.get('/analytics/dashboard', requirePromoteurPermission('viewAnalytics'), PromoteurController.getAnalytics);
-router.get('/analytics/leads-timeline', requirePromoteurPermission('viewAnalytics'), PromoteurController.getLeadsTimeline);
-router.get('/analytics/revenue-forecast', requirePromoteurPermission('viewAnalytics'), PromoteurController.getRevenueForecast);
-router.get('/analytics/growth-dashboard', requirePromoteurPermission('viewAnalytics'), PromoteurController.getGrowthDashboard);
+router.get('/analytics/dashboard', requirePromoteurPermission('viewAnalytics'), requirePlanCapability('advancedAnalytics'), PromoteurController.getAnalytics);
+router.get('/analytics/leads-timeline', requirePromoteurPermission('viewAnalytics'), requirePlanCapability('advancedAnalytics'), PromoteurController.getLeadsTimeline);
+router.get('/analytics/revenue-forecast', requirePromoteurPermission('viewAnalytics'), requirePlanCapability('advancedAnalytics'), PromoteurController.getRevenueForecast);
+router.get('/analytics/growth-dashboard', requirePromoteurPermission('viewAnalytics'), requirePlanCapability('advancedAnalytics'), PromoteurController.getGrowthDashboard);
 
 export default router;

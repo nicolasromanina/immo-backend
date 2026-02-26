@@ -4,6 +4,7 @@ import Lead from '../models/Lead';
 import Project from '../models/Project';
 import SupportTicket from '../models/SupportTicket';
 import { NotificationService } from './NotificationService';
+import { PlanLimitService } from './PlanLimitService';
 
 export class AppointmentService {
   private static buildTicketDate(ticket: any): Date {
@@ -159,6 +160,11 @@ export class AppointmentService {
     notes?: string;
     createdBy: string;
   }) {
+    const canScheduleAppointments = await PlanLimitService.checkCapability(data.promoteurId, 'calendarAppointments');
+    if (!canScheduleAppointments) {
+      throw new Error('Appointment scheduling is not available on this plan');
+    }
+
     const appointment = new Appointment({
       promoteur: data.promoteurId,
       project: data.projectId,

@@ -3,6 +3,7 @@ import bcrypt from 'bcrypt';
 import DocumentShareToken from '../models/DocumentShareToken';
 import Document from '../models/Document';
 import Project from '../models/Project';
+import { PlanLimitService } from './PlanLimitService';
 
 export class DataRoomService {
   static async createShareLink(
@@ -31,6 +32,11 @@ export class DataRoomService {
 
     if (!promoteur) {
       throw new Error('Unauthorized to share this document');
+    }
+
+    const canUseDataRoom = await PlanLimitService.checkCapability(project.promoteur.toString(), 'dataRoom');
+    if (!canUseDataRoom) {
+      throw new Error('Data room sharing is not available on your current plan');
     }
 
     const token = nanoid(32);
@@ -153,6 +159,11 @@ export class DataRoomService {
 
     if (!promoteur) {
       throw new Error('Unauthorized to create data room for this project');
+    }
+
+    const canUseDataRoom = await PlanLimitService.checkCapability(project.promoteur.toString(), 'dataRoom');
+    if (!canUseDataRoom) {
+      throw new Error('Data room is not available on your current plan');
     }
 
     // Verify all documents belong to the project

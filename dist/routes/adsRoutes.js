@@ -36,6 +36,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = require("express");
 const auth_1 = require("../middlewares/auth");
 const roles_1 = require("../config/roles");
+const planEntitlements_1 = require("../middlewares/planEntitlements");
 const adsController = __importStar(require("../controllers/adsController"));
 const router = (0, express_1.Router)();
 // Public tracking routes
@@ -44,11 +45,11 @@ router.post('/:id/click', adsController.trackClick);
 router.get('/active', adsController.getActiveAds);
 router.get('/:id/stats/7days', adsController.get7DayStats);
 // Promoteur routes
-router.post('/', auth_1.authenticateJWT, adsController.createAd);
-router.get('/my', auth_1.authenticateJWT, adsController.getMyAds);
-router.put('/:id/submit', auth_1.authenticateJWT, adsController.submitAdForReview);
-router.put('/:id/pause', auth_1.authenticateJWT, adsController.pauseAd);
-router.put('/:id/resume', auth_1.authenticateJWT, adsController.resumeAd);
+router.post('/', auth_1.authenticateJWT, (0, planEntitlements_1.requirePlanCapability)('adsCampaigns'), adsController.createAd);
+router.get('/my', auth_1.authenticateJWT, (0, planEntitlements_1.requirePlanCapability)('adsCampaigns'), adsController.getMyAds);
+router.put('/:id/submit', auth_1.authenticateJWT, (0, planEntitlements_1.requirePlanCapability)('adsCampaigns'), adsController.submitAdForReview);
+router.put('/:id/pause', auth_1.authenticateJWT, (0, planEntitlements_1.requirePlanCapability)('adsCampaigns'), adsController.pauseAd);
+router.put('/:id/resume', auth_1.authenticateJWT, (0, planEntitlements_1.requirePlanCapability)('adsCampaigns'), adsController.resumeAd);
 // Admin routes
 router.get('/', auth_1.authenticateJWT, (0, auth_1.authorizeRoles)(roles_1.Role.ADMIN, roles_1.Role.MANAGER), adsController.getAllAds);
 router.put('/:id/approve', auth_1.authenticateJWT, (0, auth_1.authorizeRoles)(roles_1.Role.ADMIN, roles_1.Role.MANAGER), adsController.approveAd);

@@ -47,6 +47,20 @@ export class UpdateController {
         return res.status(403).json({ message: 'Not authorized' });
       }
 
+      const { PlanLimitService } = await import('../services/PlanLimitService');
+      const updateLimit = await PlanLimitService.checkMonthlyUpdateLimit(user.promoteurProfile.toString(), 1);
+      if (!updateLimit.allowed) {
+        return res.status(403).json({
+          message: 'Limite mensuelle de mises a jour atteinte pour votre plan',
+          details: {
+            limit: updateLimit.limit,
+            current: updateLimit.current,
+            requested: 1,
+          },
+          upgrade: true,
+        });
+      }
+
       // Validate photos (must be exactly 3)
       if (!photos || photos.length !== 3) {
         return res.status(400).json({ 

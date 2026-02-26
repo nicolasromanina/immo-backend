@@ -30,7 +30,7 @@ const startPlanChangeJob = () => {
                         // Archive all projects
                         await Project_1.default.updateMany({ promoteur: promoteur._id }, { status: 'archive' });
                         // Update promoteur
-                        promoteur.plan = 'basique';
+                        promoteur.plan = 'starter';
                         promoteur.subscriptionStatus = 'expired';
                         promoteur.subscriptionEndDate = now;
                         await AuditLogService_1.AuditLogService.log({

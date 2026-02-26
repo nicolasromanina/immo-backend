@@ -10,12 +10,17 @@ const Promoteur_1 = __importDefault(require("../models/Promoteur"));
 const User_1 = __importDefault(require("../models/User"));
 const emailService_1 = require("../utils/emailService");
 const roles_1 = require("../config/roles");
+const PlanLimitService_1 = require("./PlanLimitService");
 class InvitationService {
     static async createInvitation(promoteurId, email, role, invitedBy) {
         // Check if user is already a team member
         const promoteur = await Promoteur_1.default.findById(promoteurId);
         if (!promoteur)
             throw new Error('Promoteur not found');
+        const canAddTeamMember = await PlanLimitService_1.PlanLimitService.checkTeamMemberLimit(promoteurId);
+        if (!canAddTeamMember) {
+            throw new Error('Limite de membres d equipe atteinte pour ce plan');
+        }
         const existingMember = promoteur.teamMembers.find(member => member.userId.toString() === invitedBy);
         if (existingMember) {
             throw new Error('User is already a team member');
@@ -110,17 +115,17 @@ class InvitationService {
         await user.save();
         console.log('[InvitationService.acceptInvitation] User saved successfully');
         // Déterminer le plan à appliquer selon le rôle de l'invitant (owner)
-        // Si l'invitant (owner) est admin, plan premium, sinon standard
+        // Migration des anciens labels: premium -> enterprise, standard -> starter
         let planToSet = promoteur.plan;
         try {
             const ownerUser = await User_1.default.findById(promoteur.user);
             if (ownerUser && ownerUser.roles.includes(roles_1.Role.ADMIN)) {
-                planToSet = 'premium';
-                console.log('[InvitationService.acceptInvitation] Plan set to premium (owner is admin)');
+                planToSet = 'enterprise';
+                console.log('[InvitationService.acceptInvitation] Plan set to enterprise (owner is admin)');
             }
             else {
-                planToSet = 'standard';
-                console.log('[InvitationService.acceptInvitation] Plan set to standard');
+                planToSet = 'starter';
+                console.log('[InvitationService.acceptInvitation] Plan set to starter');
             }
         }
         catch (e) {

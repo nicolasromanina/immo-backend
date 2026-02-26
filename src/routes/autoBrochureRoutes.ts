@@ -7,6 +7,7 @@ import {
   bulkGenerateBrochures
 } from '../controllers/autoBrochureController';
 import { authenticateJWT, authorizeRoles } from '../middlewares/auth';
+import { requirePlanCapability } from '../middlewares/planEntitlements';
 import { Role } from '../config/roles';
 
 const router = Router();
@@ -20,7 +21,7 @@ router.get('/summary/:projectId', generateSummary);
 router.use(authenticateJWT);
 
 // Promoteur routes - generate brochure for own projects
-router.post('/promoteur/project/:projectId', authorizeRoles(Role.PROMOTEUR), generatePromoteurBrochure);
+router.post('/promoteur/project/:projectId', authorizeRoles(Role.PROMOTEUR), requirePlanCapability('autoBrochure'), generatePromoteurBrochure);
 
 // Admin routes - bulk operations
 router.post('/admin/bulk', authorizeRoles(Role.ADMIN), bulkGenerateBrochures);

@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { EnterpriseContractController } from '../controllers/enterpriseContractController';
 import { authenticateJWT, authorizeRoles } from '../middlewares/auth';
+import { requirePlanCapability } from '../middlewares/planEntitlements';
 import { Role } from '../config/roles';
 
 const router = Router();
@@ -12,6 +13,7 @@ router.get(
   '/my',
   authenticateJWT,
   authorizeRoles(Role.PROMOTEUR),
+  requirePlanCapability('enterpriseContracts'),
   EnterpriseContractController.getMyContracts
 );
 
@@ -19,6 +21,7 @@ router.get(
 router.get(
   '/:id',
   authenticateJWT,
+  requirePlanCapability('enterpriseContracts'),
   EnterpriseContractController.getContract
 );
 
@@ -27,6 +30,7 @@ router.post(
   '/:id/sign',
   authenticateJWT,
   authorizeRoles(Role.PROMOTEUR),
+  requirePlanCapability('enterpriseContracts'),
   EnterpriseContractController.signByPromoteur
 );
 
@@ -35,6 +39,7 @@ router.post(
   '/:id/amendment',
   authenticateJWT,
   authorizeRoles(Role.PROMOTEUR),
+  requirePlanCapability('enterpriseContracts'),
   EnterpriseContractController.addAmendment
 );
 

@@ -42,6 +42,24 @@ export class DocumentController {
         return res.status(403).json({ message: 'Not authorized' });
       }
 
+      const { PlanLimitService } = await import('../services/PlanLimitService');
+      const docLimit = await PlanLimitService.checkProjectDocumentLimit(
+        user.promoteurProfile.toString(),
+        projectId,
+        1
+      );
+      if (!docLimit.allowed) {
+        return res.status(403).json({
+          message: 'Limite de documents atteinte pour votre plan',
+          details: {
+            limit: docLimit.limit,
+            current: docLimit.current,
+            requested: 1,
+          },
+          upgrade: true,
+        });
+      }
+
       const document = new Document({
         project: new mongoose.Types.ObjectId(projectId),
         promoteur: user.promoteurProfile,

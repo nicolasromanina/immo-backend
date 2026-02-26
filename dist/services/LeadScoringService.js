@@ -8,6 +8,7 @@ const Lead_1 = __importDefault(require("../models/Lead"));
 const Project_1 = __importDefault(require("../models/Project"));
 const Promoteur_1 = __importDefault(require("../models/Promoteur"));
 const RealChatService_1 = require("./RealChatService");
+const PlanLimitService_1 = require("./PlanLimitService");
 class LeadScoringService {
     /**
      * Calculate lead score (A, B, C, D)
@@ -109,6 +110,8 @@ class LeadScoringService {
             hasWhatsApp: !!params.whatsapp,
             messageQuality,
         });
+        const canUseLeadScoring = await PlanLimitService_1.PlanLimitService.checkCapability(params.promoteurId, 'leadScoring');
+        const effectiveScore = canUseLeadScoring ? scoring.score : 'C';
         const lead = new Lead_1.default({
             project: params.projectId,
             promoteur: params.promoteurId,
@@ -122,7 +125,7 @@ class LeadScoringService {
             financingType: params.financingType || 'unknown',
             timeframe: params.timeframe,
             interestedTypology: params.interestedTypology,
-            score: scoring.score,
+            score: effectiveScore,
             scoreDetails: scoring.details,
             status: 'nouveau',
             pipeline: [{
@@ -169,6 +172,10 @@ class LeadScoringService {
         const lead = await Lead_1.default.findById(leadId);
         if (!lead)
             throw new Error('Lead not found');
+        const canUsePipeline = await PlanLimitService_1.PlanLimitService.checkCapability(lead.promoteur.toString(), 'leadPipeline');
+        if (!canUsePipeline && !['nouveau', 'contacte'].includes(newStatus)) {
+            throw new Error('Lead pipeline is not available on this plan');
+        }
         lead.status = newStatus;
         lead.pipeline.push({
             status: newStatus,

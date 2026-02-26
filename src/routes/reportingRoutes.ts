@@ -1,20 +1,21 @@
 import { Router } from 'express';
 import { ReportingController } from '../controllers/reportingController';
 import { authenticateJWT, authorizeRoles } from '../middlewares/auth';
+import { requirePlanCapability } from '../middlewares/planEntitlements';
 
 import { Role } from '../config/roles';
 
 const router = Router();
 
 // Promoteur routes
-router.get('/sla/my-dashboard', authenticateJWT, authorizeRoles(Role.PROMOTEUR), ReportingController.getMySLADashboard);
-router.get('/sanctions/my-history', authenticateJWT, authorizeRoles(Role.PROMOTEUR), ReportingController.getMySanctionHistory);
+router.get('/sla/my-dashboard', authenticateJWT, authorizeRoles(Role.PROMOTEUR), requirePlanCapability('advancedAnalytics'), ReportingController.getMySLADashboard);
+router.get('/sanctions/my-history', authenticateJWT, authorizeRoles(Role.PROMOTEUR), requirePlanCapability('advancedAnalytics'), ReportingController.getMySanctionHistory);
 
 // Admin routes
 router.get('/monthly', authenticateJWT, authorizeRoles(Role.ADMIN), ReportingController.getMonthlyReport);
 router.get('/promoteur/:promoteurId', authenticateJWT, authorizeRoles(Role.ADMIN), ReportingController.getPromoteurReport);
 // Promoteur can fetch their own performance report
-router.get('/promoteur/me', authenticateJWT, authorizeRoles(Role.PROMOTEUR), ReportingController.getMyPromoteurReport);
+router.get('/promoteur/me', authenticateJWT, authorizeRoles(Role.PROMOTEUR), requirePlanCapability('advancedAnalytics'), ReportingController.getMyPromoteurReport);
 router.get('/discipline-dashboard', authenticateJWT, authorizeRoles(Role.ADMIN), ReportingController.getDisciplineDashboard);
 router.get('/sla/:promoteurId', authenticateJWT, authorizeRoles(Role.ADMIN), ReportingController.getSLADashboard);
 router.get('/sanctions/:promoteurId', authenticateJWT, authorizeRoles(Role.ADMIN), ReportingController.getSanctionHistory);
