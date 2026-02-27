@@ -285,6 +285,9 @@ export class PromoteurController {
 
       await promoteur.save();
 
+      // kycStatus vient de passer à 'submitted' (+10 pts) : recalculer le score
+      await TrustScoreService.updateAllScores(promoteur._id.toString());
+
       await AuditLogService.logFromRequest(
         req,
         'upload_kyc_documents',

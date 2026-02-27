@@ -827,6 +827,12 @@ export class AdminController {
 
       await project.save();
 
+      // Recalculate trust score for the promoteur (and all their projects)
+      const promoteurId = (project.promoteur as any)?._id?.toString() || project.promoteur?.toString();
+      if (promoteurId) {
+        await TrustScoreService.updateAllScores(promoteurId);
+      }
+
       await AuditLogService.logFromRequest(
         req,
         isApproved ? 'approve_project' : 'reject_project',
@@ -1533,15 +1539,12 @@ export class AdminController {
         doc.reviewedAt = new Date();
       }
 
-      // If all docs are approved, keep the level, recalculate trust score
-      if (promoteur.financialProofDocuments.every((d: any) => d.status === 'approved' || d.status !== 'rejected')) {
-        // Only count approved documents for the level
-        await TrustScoreService.updateAllScores(promoteurId);
-      }
-
       // Recalculate onboarding progress
       OnboardingService.recalculate(promoteur);
       await promoteur.save();
+
+      // Recalculate trust score AFTER save so the DB reflects the new doc status
+      await TrustScoreService.updateAllScores(promoteurId);
 
       await AuditLogService.logFromRequest(
         req,

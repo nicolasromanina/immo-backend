@@ -739,6 +739,11 @@ class AdminController {
                 });
             }
             await project.save();
+            // Recalculate trust score for the promoteur (and all their projects)
+            const promoteurId = project.promoteur?._id?.toString() || project.promoteur?.toString();
+            if (promoteurId) {
+                await TrustScoreService_1.TrustScoreService.updateAllScores(promoteurId);
+            }
             await AuditLogService_1.AuditLogService.logFromRequest(req, isApproved ? 'approve_project' : 'reject_project', 'moderation', `${isApproved ? 'Approved' : 'Rejected'} project: ${project.title}`, 'Project', id);
             res.json({ project });
         }
@@ -1273,14 +1278,11 @@ class AdminController {
                 doc.reviewedBy = new mongoose_1.default.Types.ObjectId(req.user.id);
                 doc.reviewedAt = new Date();
             }
-            // If all docs are approved, keep the level, recalculate trust score
-            if (promoteur.financialProofDocuments.every((d) => d.status === 'approved' || d.status !== 'rejected')) {
-                // Only count approved documents for the level
-                await TrustScoreService_1.TrustScoreService.updateAllScores(promoteurId);
-            }
             // Recalculate onboarding progress
             OnboardingService_1.OnboardingService.recalculate(promoteur);
             await promoteur.save();
+            // Recalculate trust score AFTER save so the DB reflects the new doc status
+            await TrustScoreService_1.TrustScoreService.updateAllScores(promoteurId);
             await AuditLogService_1.AuditLogService.logFromRequest(req, approved ? 'approve_financial_doc' : 'reject_financial_doc', 'moderation', `${approved ? 'Approved' : 'Rejected'} financial proof document for ${promoteur.organizationName}`, 'Promoteur', promoteurId);
             res.json({ promoteur });
         }

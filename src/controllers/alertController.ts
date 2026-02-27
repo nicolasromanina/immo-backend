@@ -22,9 +22,11 @@ export class AlertController {
         data: alert,
       });
     } catch (error: any) {
+      console.error('[AlertController.create] Error:', error.message, error.errors || '');
       res.status(400).json({
         success: false,
-        error: error.message,
+        message: error.message,
+        errors: error.errors,
       });
     }
   }

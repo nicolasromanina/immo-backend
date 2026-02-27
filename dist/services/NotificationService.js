@@ -13,6 +13,17 @@ class NotificationService {
      * Create a notification
      */
     static async create(params) {
+        // Backward compatibility:
+        // some legacy callers pass recipient: 'admin' (string role) instead of a User ObjectId.
+        // In that case, fan-out the notification to all admin users.
+        if (params.recipient === 'admin') {
+            const admins = await User_1.default.find({ roles: 'admin' }).select('_id');
+            const payloads = admins.map((admin) => this.create({
+                ...params,
+                recipient: admin._id.toString(),
+            }));
+            return Promise.all(payloads);
+        }
         const notification = new Notification_1.default({
             recipient: params.recipient,
             type: params.type,

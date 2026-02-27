@@ -270,6 +270,8 @@ class PromoteurController {
                 OnboardingService_1.OnboardingService.recalculate(promoteur);
             }
             await promoteur.save();
+            // kycStatus vient de passer à 'submitted' (+10 pts) : recalculer le score
+            await TrustScoreService_1.TrustScoreService.updateAllScores(promoteur._id.toString());
             await AuditLogService_1.AuditLogService.logFromRequest(req, 'upload_kyc_documents', 'promoteur', `Uploaded ${documents.length} KYC documents`, 'Promoteur', promoteur._id.toString());
             res.json({ promoteur });
         }

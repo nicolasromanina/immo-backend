@@ -4,6 +4,68 @@ import { PartnerService } from '../services/PartnerService';
 
 export class PartnerController {
   /**
+   * Upload partner logo (admin)
+   */
+  static async uploadLogo(req: AuthRequest, res: Response) {
+    try {
+      const file = (req as any).file;
+      if (!file) {
+        return res.status(400).json({ message: 'Aucun fichier fourni' });
+      }
+
+      if (!String(file.mimetype || '').startsWith('image/')) {
+        return res.status(400).json({ message: 'Le logo doit etre une image' });
+      }
+
+      const cloudinary = require('cloudinary').v2;
+      cloudinary.config({
+        cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+        api_key: process.env.CLOUDINARY_API_KEY,
+        api_secret: process.env.CLOUDINARY_API_SECRET,
+      });
+
+      const result = await cloudinary.uploader.upload(file.path, {
+        folder: 'partners',
+      });
+
+      const fs = require('fs').promises;
+      try {
+        await fs.unlink(file.path);
+      } catch {
+        // ignore cleanup errors
+      }
+
+      return res.json({ url: result.secure_url });
+    } catch (error) {
+      console.error('Error uploading partner logo:', error);
+      return res.status(500).json({ message: 'Erreur upload logo' });
+    }
+  }
+
+  /**
+   * Get all partners (admin)
+   */
+  static async getPartnersAdmin(req: AuthRequest, res: Response) {
+    try {
+      const { type, status, country, city, page, limit } = req.query;
+
+      const result = await PartnerService.getPartners({
+        type: type as string,
+        status: status as string,
+        country: country as string,
+        city: city as string,
+        page: page ? parseInt(page as string, 10) : 1,
+        limit: limit ? parseInt(limit as string, 10) : 20,
+      });
+
+      res.json(result);
+    } catch (error) {
+      console.error('Error getting partners (admin):', error);
+      res.status(500).json({ message: 'Server error' });
+    }
+  }
+
+  /**
    * Get all partners (public)
    */
   static async getPartners(req: AuthRequest, res: Response) {

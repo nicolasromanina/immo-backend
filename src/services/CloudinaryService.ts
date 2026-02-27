@@ -55,6 +55,9 @@ export class CloudinaryService {
           public_id: options.publicId,
           resource_type: options.resourceType || 'image',
           overwrite: true,
+          // Convertir en WebP automatiquement pour un chargement rapide
+          format: options.resourceType === 'auto' ? undefined : 'webp',
+          quality: 'auto',
         },
         (error, result) => {
           if (error) return reject(error);

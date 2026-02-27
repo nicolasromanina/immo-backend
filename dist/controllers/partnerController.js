@@ -4,6 +4,62 @@ exports.PartnerController = void 0;
 const PartnerService_1 = require("../services/PartnerService");
 class PartnerController {
     /**
+     * Upload partner logo (admin)
+     */
+    static async uploadLogo(req, res) {
+        try {
+            const file = req.file;
+            if (!file) {
+                return res.status(400).json({ message: 'Aucun fichier fourni' });
+            }
+            if (!String(file.mimetype || '').startsWith('image/')) {
+                return res.status(400).json({ message: 'Le logo doit etre une image' });
+            }
+            const cloudinary = require('cloudinary').v2;
+            cloudinary.config({
+                cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+                api_key: process.env.CLOUDINARY_API_KEY,
+                api_secret: process.env.CLOUDINARY_API_SECRET,
+            });
+            const result = await cloudinary.uploader.upload(file.path, {
+                folder: 'partners',
+            });
+            const fs = require('fs').promises;
+            try {
+                await fs.unlink(file.path);
+            }
+            catch {
+                // ignore cleanup errors
+            }
+            return res.json({ url: result.secure_url });
+        }
+        catch (error) {
+            console.error('Error uploading partner logo:', error);
+            return res.status(500).json({ message: 'Erreur upload logo' });
+        }
+    }
+    /**
+     * Get all partners (admin)
+     */
+    static async getPartnersAdmin(req, res) {
+        try {
+            const { type, status, country, city, page, limit } = req.query;
+            const result = await PartnerService_1.PartnerService.getPartners({
+                type: type,
+                status: status,
+                country: country,
+                city: city,
+                page: page ? parseInt(page, 10) : 1,
+                limit: limit ? parseInt(limit, 10) : 20,
+            });
+            res.json(result);
+        }
+        catch (error) {
+            console.error('Error getting partners (admin):', error);
+            res.status(500).json({ message: 'Server error' });
+        }
+    }
+    /**
      * Get all partners (public)
      */
     static async getPartners(req, res) {
