@@ -26,7 +26,21 @@ export class NotificationService {
     priority?: 'low' | 'medium' | 'high' | 'urgent';
     scheduledFor?: Date;
     data?: Record<string, any>;
-  }) {
+  }): Promise<any> {
+    // Backward compatibility:
+    // some legacy callers pass recipient: 'admin' (string role) instead of a User ObjectId.
+    // In that case, fan-out the notification to all admin users.
+    if (params.recipient === 'admin') {
+      const admins = await User.find({ roles: 'admin' }).select('_id');
+      const payloads: Promise<any>[] = admins.map((admin) =>
+        this.create({
+          ...params,
+          recipient: admin._id.toString(),
+        })
+      );
+      return Promise.all(payloads);
+    }
+
     const notification = new Notification({
       recipient: params.recipient,
       type: params.type,

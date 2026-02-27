@@ -1,8 +1,37 @@
 import { Router } from 'express';
+import multer from 'multer';
+import path from 'path';
 import { ClientController } from '../controllers/clientController';
 import { authenticateJWT, authorizeRoles } from '../middlewares/auth';
 
 const router = Router();
+
+// Configure multer for avatar uploads
+const avatarDir = path.join(process.cwd(), 'uploads', 'avatars');
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    cb(null, avatarDir);
+  },
+  filename: function (req, file, cb) {
+    const ext = path.extname(file.originalname);
+    const base = 'avatar-' + Date.now();
+    cb(null, base + ext);
+  }
+});
+const upload = multer({ 
+  storage,
+  fileFilter: (req, file, cb) => {
+    // Only allow image files
+    if (file.mimetype.startsWith('image/')) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only image files are allowed'));
+    }
+  },
+  limits: {
+    fileSize: 5 * 1024 * 1024 // 5MB max
+  }
+});
 
 // All routes require authentication
 router.use(authenticateJWT);
@@ -10,6 +39,7 @@ router.use(authenticateJWT);
 // Profile
 router.get('/profile', ClientController.getProfile);
 router.put('/profile', ClientController.updateProfile);
+router.put('/avatar', upload.single('avatar') as any, ClientController.uploadAvatar);
 
 // Favorites
 router.post('/favorites/:projectId', ClientController.addFavorite);
@@ -20,6 +50,10 @@ router.put('/favorites/:projectId', ClientController.updateFavorite);
 // Projects
 router.get('/projects/compare', ClientController.compareProjects);
 router.get('/projects/search', ClientController.searchProjects);
+
+// Appointments (client side)
+router.get('/appointments', ClientController.getMyAppointments);
+router.patch('/appointments/:id/cancel', ClientController.cancelMyAppointment);
 
 // Reports
 router.post('/report', ClientController.reportContent);

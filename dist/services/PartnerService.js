@@ -49,11 +49,30 @@ class PartnerService {
      * Create a new partner
      */
     static async createPartner(data) {
-        const partner = new Partner_1.default({
+        const buildPartnerDoc = () => new Partner_1.default({
             ...data,
             status: 'pending',
         });
-        await partner.save();
+        let partner = buildPartnerDoc();
+        try {
+            await partner.save();
+        }
+        catch (error) {
+            const isParallelArraysIndexError = error?.code === 171 || String(error?.message || '').includes('parallel arrays');
+            if (!isParallelArraysIndexError) {
+                throw error;
+            }
+            // Legacy DB index migration safety:
+            // old index countries_1_cities_1 fails when both fields are arrays.
+            try {
+                await Partner_1.default.collection.dropIndex('countries_1_cities_1');
+            }
+            catch (_dropErr) {
+                // Ignore if index is already removed/not found.
+            }
+            partner = buildPartnerDoc();
+            await partner.save();
+        }
         // Notify admins
         await NotificationService_1.NotificationService.create({
             recipient: 'admin',

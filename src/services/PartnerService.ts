@@ -66,12 +66,34 @@ export class PartnerService {
     cities: string[];
     logo?: string;
   }) {
-    const partner = new Partner({
-      ...data,
-      status: 'pending',
-    });
+    const buildPartnerDoc = () =>
+      new Partner({
+        ...data,
+        status: 'pending',
+      });
 
-    await partner.save();
+    let partner = buildPartnerDoc();
+    try {
+      await partner.save();
+    } catch (error: any) {
+      const isParallelArraysIndexError =
+        error?.code === 171 || String(error?.message || '').includes('parallel arrays');
+
+      if (!isParallelArraysIndexError) {
+        throw error;
+      }
+
+      // Legacy DB index migration safety:
+      // old index countries_1_cities_1 fails when both fields are arrays.
+      try {
+        await Partner.collection.dropIndex('countries_1_cities_1');
+      } catch (_dropErr) {
+        // Ignore if index is already removed/not found.
+      }
+
+      partner = buildPartnerDoc();
+      await partner.save();
+    }
 
     // Notify admins
     await NotificationService.create({

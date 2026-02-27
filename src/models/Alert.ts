@@ -4,7 +4,7 @@ export interface IAlert extends Document {
   user: mongoose.Types.ObjectId;
   
   // Alert type
-  type: 'new-project' | 'update-published' | 'status-change' | 'price-change' | 'similar-project' | 'deadline-approaching';
+  type: 'new-project' | 'update-published' | 'status-change' | 'price-change' | 'similar-project' | 'deadline-approaching' | 'favorite-update' | 'promoteur-verified';
   
   // Target
   project?: mongoose.Types.ObjectId;
@@ -46,7 +46,7 @@ const AlertSchema: Schema = new Schema({
   
   type: { 
     type: String, 
-    enum: ['new-project', 'update-published', 'status-change', 'price-change', 'similar-project', 'deadline-approaching'],
+    enum: ['new-project', 'update-published', 'status-change', 'price-change', 'similar-project', 'deadline-approaching', 'favorite-update', 'promoteur-verified'],
     required: true,
     index: true
   },

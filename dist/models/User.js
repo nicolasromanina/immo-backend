@@ -66,6 +66,13 @@ const UserSchema = new mongoose_1.Schema({
         preferredCountries: [{ type: String }],
         preferredCities: [{ type: String }],
         deliveryTimeline: { type: String },
+        address: { type: String },
+        residence: { type: String },
+        objectif: [{ type: String }],
+        modePaiement: { type: String },
+        dejaInvesti: { type: Boolean },
+        aversionRisque: { type: String },
+        accompagnements: [{ type: String }],
     },
 }, { timestamps: true });
 UserSchema.index({ email: 1 });

@@ -38,7 +38,7 @@ const AlertSchema = new mongoose_1.Schema({
     user: { type: mongoose_1.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
     type: {
         type: String,
-        enum: ['new-project', 'update-published', 'status-change', 'price-change', 'similar-project', 'deadline-approaching'],
+        enum: ['new-project', 'update-published', 'status-change', 'price-change', 'similar-project', 'deadline-approaching', 'favorite-update', 'promoteur-verified'],
         required: true,
         index: true
     },

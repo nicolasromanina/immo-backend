@@ -7,6 +7,8 @@ import Report from '../models/Report';
 import Notification from '../models/Notification';
 import Promoteur from '../models/Promoteur';
 import Payment from '../models/Payment';
+import Review from '../models/Review';
+import Appointment from '../models/Appointment';
 import { NotificationService } from '../services/NotificationService';
 import { stripe, BECOME_PROMOTEUR_PRICES, SETUP_FEES } from '../config/stripe';
 import { Role } from '../config/roles';
@@ -285,16 +287,31 @@ export class ClientController {
    */
   static async getProfile(req: AuthRequest, res: Response) {
     try {
-      const user = await User.findById(req.user!.id).select('-password');
+      const user = await User.findById(req.user!.id).select('-password').lean();
 
       if (!user) {
         return res.status(404).json({ message: 'User not found' });
       }
 
-      // Get favorites count
-      const favoritesCount = await Favorite.countDocuments({ user: user._id });
+      // Transform user data into ClientProfile format
+      const clientProfile = {
+        _id: user._id,
+        userId: user._id,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        email: user.email,
+        phone: user.phone,
+        avatar: user.avatar,
+        address: user.clientProfile?.address,
+        residence: user.clientProfile?.residence,
+        objectif: user.clientProfile?.objectif,
+        modePaiement: user.clientProfile?.modePaiement,
+        dejaInvesti: user.clientProfile?.dejaInvesti,
+        aversionRisque: user.clientProfile?.aversionRisque,
+        accompagnements: user.clientProfile?.accompagnements,
+      };
 
-      res.json({ user, stats: { favoritesCount } });
+      res.json(clientProfile);
     } catch (error) {
       console.error('Error getting profile:', error);
       res.status(500).json({ message: 'Server error' });
@@ -306,7 +323,7 @@ export class ClientController {
    */
   static async updateProfile(req: AuthRequest, res: Response) {
     try {
-      const allowedFields = [
+      const allowedRootFields = [
         'firstName',
         'lastName',
         'phone',
@@ -314,23 +331,75 @@ export class ClientController {
         'city',
         'avatar',
         'preferences',
-        'clientProfile',
+      ];
+
+      const allowedClientProfileFields = [
+        'address',
+        'residence',
+        'objectif',
+        'modePaiement',
+        'dejaInvesti',
+        'aversionRisque',
+        'accompagnements',
+        'budget',
+        'projectType',
+        'preferredCountries',
+        'preferredCities',
+        'deliveryTimeline',
       ];
 
       const updates: any = {};
+      const clientProfileUpdates: any = {};
+
       Object.keys(req.body).forEach(key => {
-        if (allowedFields.includes(key)) {
+        if (allowedRootFields.includes(key)) {
           updates[key] = req.body[key];
+        } else if (allowedClientProfileFields.includes(key)) {
+          clientProfileUpdates[key] = req.body[key];
+        } else if (key === 'clientProfile' && typeof req.body[key] === 'object') {
+          // Handle nested clientProfile object
+          Object.keys(req.body[key]).forEach(nestedKey => {
+            if (allowedClientProfileFields.includes(nestedKey)) {
+              clientProfileUpdates[nestedKey] = req.body[key][nestedKey];
+            }
+          });
         }
       });
+
+      // Add clientProfile updates to the main updates object
+      if (Object.keys(clientProfileUpdates).length > 0) {
+        updates.clientProfile = clientProfileUpdates;
+      }
 
       const user = await User.findByIdAndUpdate(
         req.user!.id,
         updates,
         { new: true, runValidators: true }
-      ).select('-password');
+      ).select('-password').lean();
 
-      res.json({ user });
+      if (!user) {
+        return res.status(404).json({ message: 'User not found' });
+      }
+
+      // Transform user data into ClientProfile format
+      const clientProfile = {
+        _id: user._id,
+        userId: user._id,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        email: user.email,
+        phone: user.phone,
+        avatar: user.avatar,
+        address: user.clientProfile?.address,
+        residence: user.clientProfile?.residence,
+        objectif: user.clientProfile?.objectif,
+        modePaiement: user.clientProfile?.modePaiement,
+        dejaInvesti: user.clientProfile?.dejaInvesti,
+        aversionRisque: user.clientProfile?.aversionRisque,
+        accompagnements: user.clientProfile?.accompagnements,
+      };
+
+      res.json(clientProfile);
     } catch (error) {
       console.error('Error updating profile:', error);
       res.status(500).json({ message: 'Server error' });
@@ -358,77 +427,147 @@ export class ClientController {
         limit = 20,
       } = req.query;
 
-      const query: any = { publicationStatus: 'published' };
+      // Niveau 3 : tri choisi par l'utilisateur (prix, date, score)
+      const userSortMap: Record<string, Record<string, 1 | -1>> = {
+        '-trustScore':           { trustScore: -1 },
+        '-createdAt':            { createdAt: -1 },
+        'priceFrom':             { priceFrom: 1 },
+        '-priceFrom':            { priceFrom: -1 },
+        'timeline.deliveryDate': { 'timeline.deliveryDate': 1 },
+      };
+      const userSort = userSortMap[sort as string] ?? { trustScore: -1 };
 
-      // Search
+      // Poids par plan (niveau 2)
+      const planWeightExpr = {
+        $switch: {
+          branches: [
+            { case: { $eq: [{ $arrayElemAt: ['$_promoteurArr.plan', 0] }, 'enterprise'] }, then: 4 },
+            { case: { $eq: [{ $arrayElemAt: ['$_promoteurArr.plan', 0] }, 'partenaire'] },  then: 3 },
+            { case: { $eq: [{ $arrayElemAt: ['$_promoteurArr.plan', 0] }, 'verifie'] },     then: 2 },
+            { case: { $eq: [{ $arrayElemAt: ['$_promoteurArr.plan', 0] }, 'publie'] },      then: 1 },
+          ],
+          default: 0,
+        },
+      };
+
+      // Filtres de base ($match initial)
+      const matchStage: any = { publicationStatus: 'published' };
+
       if (search) {
-        query.$or = [
-          { title: { $regex: search, $options: 'i' } },
+        matchStage.$or = [
+          { title:       { $regex: search, $options: 'i' } },
           { description: { $regex: search, $options: 'i' } },
-          { area: { $regex: search, $options: 'i' } },
+          { area:        { $regex: search, $options: 'i' } },
+          { city:        { $regex: search, $options: 'i' } },
+          { country:     { $regex: search, $options: 'i' } },
         ];
       }
-
-      // Filters
-      if (country) query.country = country;
-      if (city) query.city = city;
-      if (projectType) query.projectType = projectType;
-      
+      if (country)      matchStage.country = { $regex: `^${country}$`, $options: 'i' };
+      if (city)         matchStage.city    = { $regex: `^${city}$`,    $options: 'i' };
+      if (projectType)  matchStage.projectType = projectType;
+      if (featured === 'true') matchStage.isFeatured = true;
+      if (minScore)     matchStage.trustScore = { $gte: Number(minScore) };
+      if (deliveryBefore) matchStage['timeline.deliveryDate'] = { $lte: new Date(deliveryBefore as string) };
       if (minPrice || maxPrice) {
-        query.priceFrom = {};
-        if (minPrice) query.priceFrom.$gte = Number(minPrice);
-        if (maxPrice) query.priceFrom.$lte = Number(maxPrice);
+        matchStage.priceFrom = {};
+        if (minPrice) matchStage.priceFrom.$gte = Number(minPrice);
+        if (maxPrice) matchStage.priceFrom.$lte = Number(maxPrice);
       }
 
-      if (minScore) query.trustScore = { $gte: Number(minScore) };
-
-      if (deliveryBefore) {
-        query['timeline.deliveryDate'] = { $lte: new Date(deliveryBefore as string) };
-      }
-
-      if (featured === 'true') query.isFeatured = true;
-
-      // Verified only
-      if (verifiedOnly === 'true') {
-        const verifiedPromoteurs = await Project.aggregate([
-          {
-            $lookup: {
-              from: 'promoteurs',
-              localField: 'promoteur',
-              foreignField: '_id',
-              as: 'promoteurData',
-            },
+      // Étapes communes au pipeline count et data
+      const sharedStages: any[] = [
+        { $match: matchStage },
+        // Lookup promoteur pour planWeight + verifiedOnly
+        {
+          $lookup: {
+            from: 'promoteurs',
+            localField: 'promoteur',
+            foreignField: '_id',
+            as: '_promoteurArr',
           },
-          {
-            $match: {
-              'promoteurData.plan': { $in: ['verifie', 'partenaire', 'enterprise'] },
-            },
+        },
+        // Filtre verifiedOnly inline (pas de pre-query séparé)
+        ...(verifiedOnly === 'true'
+          ? [{ $match: { '_promoteurArr.plan': { $in: ['verifie', 'partenaire', 'enterprise'] } } }]
+          : []),
+        // Calcul du poids plan + normalisation isFeatured
+        {
+          $addFields: {
+            isFeatured: { $ifNull: ['$isFeatured', false] },
+            _planWeight: planWeightExpr,
           },
-          {
-            $project: { _id: 1 },
+        },
+        // Tri : niveau 1 isFeatured, niveau 2 plan, niveau 3 choix user
+        {
+          $sort: {
+            isFeatured: -1,
+            _planWeight: -1,
+            ...userSort,
           },
-        ]);
-
-        const verifiedProjectIds = verifiedPromoteurs.map(p => p._id);
-        query._id = { $in: verifiedProjectIds };
-      }
+        },
+      ];
 
       const skip = (Number(page) - 1) * Number(limit);
 
-      const projects = await Project.find(query)
-        .sort(sort as string)
-        .limit(Number(limit))
-        .skip(skip)
-        .populate('promoteur', 'organizationName trustScore badges plan logo')
-        .select('-changesLog -moderationNotes');
+      // Pipeline count (léger)
+      const countPipeline = [...sharedStages, { $count: 'total' }];
 
-      const total = await Project.countDocuments(query);
+      // Pipeline data (paginé + reshape du promoteur)
+      const dataPipeline = [
+        ...sharedStages,
+        { $skip: skip },
+        { $limit: Number(limit) },
+        // Remplacer promoteur (ObjectId) par les champs utiles du lookup
+        {
+          $addFields: {
+            promoteur: {
+              $let: {
+                vars: { p: { $ifNull: [{ $arrayElemAt: ['$_promoteurArr', 0] }, {}] } },
+                in: {
+                  _id:              '$$p._id',
+                  organizationName: { $ifNull: ['$$p.organizationName', null] },
+                  trustScore:       { $ifNull: ['$$p.trustScore', 0] },
+                  plan:             { $ifNull: ['$$p.plan', 'starter'] },
+                  logo:             { $ifNull: ['$$p.logo', null] },
+                  badges:           { $ifNull: ['$$p.badges', []] },
+                },
+              },
+            },
+          },
+        },
+        // Supprimer les champs internes / sensibles
+        { $unset: ['_promoteurArr', '_planWeight', 'changesLog', 'moderationNotes'] },
+      ];
+
+      const [countResult, projects] = await Promise.all([
+        Project.aggregate(countPipeline),
+        Project.aggregate(dataPipeline),
+      ]);
+
+      const total = countResult[0]?.total ?? 0;
+
+      // Agrégation des notes moyennes (reviews publiées)
+      const projectIds = projects.map((p: any) => p._id);
+      const ratings = await Review.aggregate([
+        { $match: { project: { $in: projectIds }, status: 'published' } },
+        { $group: { _id: '$project', avgRating: { $avg: '$rating' }, reviewCount: { $sum: 1 } } },
+      ]);
+      const ratingMap = new Map(ratings.map((r: any) => [r._id.toString(), r]));
+
+      const projectsWithRating = projects.map((p: any) => {
+        const r = ratingMap.get(p._id.toString());
+        return {
+          ...p,
+          avgRating:   r ? Math.round(r.avgRating * 10) / 10 : null,
+          reviewCount: r?.reviewCount ?? 0,
+        };
+      });
 
       res.json({
-        projects,
+        projects: projectsWithRating,
         pagination: {
           total,
-          page: Number(page),
+          page:  Number(page),
           pages: Math.ceil(total / Number(limit)),
           limit: Number(limit),
         },
@@ -914,4 +1053,118 @@ export class ClientController {
       res.status(500).json({ message: 'Erreur lors de la vérification de la session', error: error.message });
     }
   }
-}
+
+  /**
+   * Get all appointments for the current client (created by them)
+   */
+  static async getMyAppointments(req: AuthRequest, res: Response) {
+    try {
+      const appointments = await Appointment.find({ createdBy: req.user!.id })
+        .populate('project', 'title city area')
+        .populate('promoteur', 'organizationName')
+        .sort({ scheduledAt: -1 });
+
+      res.json({ appointments });
+    } catch (error) {
+      console.error('Error fetching client appointments:', error);
+      res.status(500).json({ message: 'Server error' });
+    }
+  }
+
+  /**
+   * Cancel an appointment owned by the current client
+   */
+  static async cancelMyAppointment(req: AuthRequest, res: Response) {
+    try {
+      const { id } = req.params;
+      const appointment = await Appointment.findOne({ _id: id, createdBy: req.user!.id });
+
+      if (!appointment) {
+        return res.status(404).json({ message: 'Rendez-vous introuvable' });
+      }
+      if (['canceled', 'completed'].includes(appointment.status)) {
+        return res.status(400).json({ message: 'Ce rendez-vous ne peut pas être annulé' });
+      }
+
+      appointment.status = 'canceled';
+      await appointment.save();
+
+      res.json({ message: 'Rendez-vous annulé', appointment });
+    } catch (error) {
+      console.error('Error cancelling appointment:', error);
+      res.status(500).json({ message: 'Server error' });
+    }
+  }
+
+  /**
+   * Upload avatar for client
+   */
+  static async uploadAvatar(req: AuthRequest, res: Response) {
+    try {
+      const file = req.file;
+      if (!file) {
+        return res.status(400).json({ message: 'No file provided' });
+      }
+
+      try {
+        // Try to upload to Cloudinary if configured
+        const cloudinary = require('cloudinary').v2;
+        if (process.env.CLOUDINARY_CLOUD_NAME && process.env.CLOUDINARY_API_KEY) {
+          cloudinary.config({
+            cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+            api_key: process.env.CLOUDINARY_API_KEY,
+            api_secret: process.env.CLOUDINARY_API_SECRET,
+          });
+
+          const result = await cloudinary.uploader.upload(file.path, {
+            folder: 'client-avatars',
+            public_id: `${req.user?.id}-avatar`,
+            overwrite: true,
+          });
+          
+          // Delete local temp file
+          const fs = require('fs').promises;
+          try {
+            await fs.unlink(file.path);
+          } catch (e) {
+            // Ignore error if file can't be deleted
+          }
+
+          // Update user avatar in database
+          const user = await User.findByIdAndUpdate(
+            req.user!.id,
+            { avatar: result.secure_url },
+            { new: true, runValidators: true }
+          ).select('-password').lean();
+
+          if (!user) {
+            return res.status(404).json({ message: 'User not found' });
+          }
+
+          return res.json({ avatar: result.secure_url });
+        }
+      } catch (cloudinaryError) {
+        console.warn('Cloudinary upload failed, falling back to local storage:', cloudinaryError);
+      }
+
+      // Fallback to local storage
+      const backendUrl = process.env.BACKEND_URL || `http://localhost:${process.env.PORT || 5000}`;
+      const avatarUrl = `${backendUrl}/uploads/avatars/${file.filename}`;
+
+      // Update user avatar in database
+      const user = await User.findByIdAndUpdate(
+        req.user!.id,
+        { avatar: avatarUrl },
+        { new: true, runValidators: true }
+      ).select('-password').lean();
+
+      if (!user) {
+        return res.status(404).json({ message: 'User not found' });
+      }
+
+      res.json({ avatar: avatarUrl });
+    } catch (error) {
+      console.error('Error uploading avatar:', error);
+      res.status(500).json({ message: 'Server error during avatar upload' });
+    }
+  }}

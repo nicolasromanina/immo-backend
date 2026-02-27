@@ -34,6 +34,13 @@ export interface IUser extends Document {
     preferredCountries?: string[];
     preferredCities?: string[];
     deliveryTimeline?: string;
+    address?: string;
+    residence?: string;
+    objectif?: string[];
+    modePaiement?: string;
+    dejaInvesti?: boolean;
+    aversionRisque?: string;
+    accompagnements?: string[];
   };
 }
 
@@ -68,6 +75,13 @@ const UserSchema: Schema = new Schema({
     preferredCountries: [{ type: String }],
     preferredCities: [{ type: String }],
     deliveryTimeline: { type: String },
+    address: { type: String },
+    residence: { type: String },
+    objectif: [{ type: String }],
+    modePaiement: { type: String },
+    dejaInvesti: { type: Boolean },
+    aversionRisque: { type: String },
+    accompagnements: [{ type: String }],
   },
 }, { timestamps: true });
 

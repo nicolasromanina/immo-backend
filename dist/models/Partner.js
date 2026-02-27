@@ -66,5 +66,7 @@ const PartnerSchema = new mongoose_1.Schema({
     commissionRate: { type: Number },
 }, { timestamps: true });
 PartnerSchema.index({ type: 1, status: 1 });
-PartnerSchema.index({ countries: 1, cities: 1 });
+// Avoid compound index on two array fields (Mongo "parallel arrays" limitation).
+PartnerSchema.index({ countries: 1 });
+PartnerSchema.index({ cities: 1 });
 exports.default = mongoose_1.default.model('Partner', PartnerSchema);

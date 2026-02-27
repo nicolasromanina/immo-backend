@@ -76,6 +76,8 @@ const PartnerSchema: Schema = new Schema({
 }, { timestamps: true });
 
 PartnerSchema.index({ type: 1, status: 1 });
-PartnerSchema.index({ countries: 1, cities: 1 });
+// Avoid compound index on two array fields (Mongo "parallel arrays" limitation).
+PartnerSchema.index({ countries: 1 });
+PartnerSchema.index({ cities: 1 });
 
 export default mongoose.model<IPartner>('Partner', PartnerSchema);
