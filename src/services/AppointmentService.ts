@@ -1,3 +1,4 @@
+import mongoose from 'mongoose';
 import Appointment from '../models/Appointment';
 import Availability from '../models/Availability';
 import Lead from '../models/Lead';
@@ -5,6 +6,7 @@ import Project from '../models/Project';
 import SupportTicket from '../models/SupportTicket';
 import { NotificationService } from './NotificationService';
 import { PlanLimitService } from './PlanLimitService';
+import { RequestLeadService } from './RequestLeadService';
 
 export class AppointmentService {
   private static buildTicketDate(ticket: any): Date {
@@ -218,6 +220,96 @@ export class AppointmentService {
   }
 
   /**
+   * Create appointment from public request (with lead creation)
+   * Used for requests from unauthenticated clients who need a lead created
+   */
+  static async createAppointmentFromRequest(data: {
+    promoteurId: string;
+    projectId: string;
+    firstName: string;
+    lastName: string;
+    email: string;
+    phone?: string;
+    scheduledAt: Date;
+    durationMinutes: number;
+    type: 'visio' | 'physique' | 'phone';
+    notes?: string;
+    clientId?: string;
+  }) {
+    const project = await Project.findById(data.projectId);
+    if (!project) {
+      throw new Error('Project not found');
+    }
+
+    const canScheduleAppointments = await PlanLimitService.checkCapability(data.promoteurId, 'calendarAppointments');
+    if (!canScheduleAppointments) {
+      throw new Error('Appointment scheduling is not available on this plan');
+    }
+
+    // Create or get lead via RequestLeadService
+    const { lead, conversation } = await RequestLeadService.createLeadFromRequest({
+      projectId: data.projectId,
+      promoteurId: data.promoteurId,
+      clientId: data.clientId,
+      firstName: data.firstName,
+      lastName: data.lastName,
+      email: data.email,
+      phone: data.phone,
+      requestType: 'appointment',
+      initialMessage: `Demande de rendez-vous - ${data.type}`,
+    });
+
+    // Create appointment
+    const appointment = new Appointment({
+      promoteur: data.promoteurId,
+      project: data.projectId,
+      lead: lead._id,
+      scheduledAt: data.scheduledAt,
+      durationMinutes: data.durationMinutes,
+      type: data.type,
+      notes: data.notes || `RDV demandé via ${data.type}`,
+      status: 'requested',
+      createdBy: data.clientId || data.promoteurId,
+    });
+
+    await appointment.save();
+
+    // Update lead with meeting info
+    await Lead.findByIdAndUpdate(lead._id, {
+      meetingScheduled: {
+        date: data.scheduledAt,
+        type: data.type,
+        notes: data.notes,
+      },
+      status: 'rdv-planifie',
+      $push: {
+        pipeline: {
+          status: 'rdv-planifie',
+          changedAt: new Date(),
+          changedBy: data.clientId || data.promoteurId,
+          notes: `RDV ${data.type} planifié`,
+        },
+      },
+    });
+
+    // Send notifications
+    if (project) {
+      // Notify promoteur
+      await NotificationService.create({
+        recipient: (project.promoteur as any).user?.toString() || project.promoteur.toString(),
+        type: 'lead',
+        title: 'Nouveau RDV demandé',
+        message: `${data.firstName} ${data.lastName} demande un RDV ${data.type}`,
+        priority: 'high',
+        channels: { inApp: true, email: true },
+        data: { appointmentId: appointment._id, leadId: lead._id },
+      });
+    }
+
+    return { appointment, lead, conversation };
+  }
+
+  /**
    * Confirm an appointment
    */
   static async confirmAppointment(appointmentId: string, userId: string) {
@@ -267,7 +359,7 @@ export class AppointmentService {
           pipeline: {
             status: 'rdv-annule',
             changedAt: new Date(),
-            changedBy: userId,
+            changedBy: new mongoose.Types.ObjectId(userId),
             notes: reason || 'RDV annulé',
           },
         },
@@ -298,7 +390,7 @@ export class AppointmentService {
           pipeline: {
             status: 'visite-effectuee',
             changedAt: new Date(),
-            changedBy: userId,
+            changedBy: new mongoose.Types.ObjectId(userId),
             notes: notes || 'Visite effectuée',
           },
         },

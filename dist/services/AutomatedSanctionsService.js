@@ -20,7 +20,7 @@ class AutomatedSanctionsService {
     static async checkUpdateFrequency() {
         const projects = await Project_1.default.find({
             publicationStatus: 'published',
-            status: { $in: ['en-construction', 'gros-oeuvre'] },
+            status: { $in: ['demarrage-chantier', 'fondations', 'gros-oeuvres', 'second-oeuvres'] },
         }).populate('promoteur');
         const sanctions = [];
         for (const project of projects) {

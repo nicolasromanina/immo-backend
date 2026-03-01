@@ -146,22 +146,6 @@ export class InvitationService {
     await user.save();
     console.log('[InvitationService.acceptInvitation] User saved successfully');
 
-    // Déterminer le plan à appliquer selon le rôle de l'invitant (owner)
-    // Migration des anciens labels: premium -> enterprise, standard -> starter
-    let planToSet = promoteur.plan;
-    try {
-      const ownerUser = await User.findById(promoteur.user);
-      if (ownerUser && ownerUser.roles.includes(Role.ADMIN)) {
-        planToSet = 'enterprise';
-        console.log('[InvitationService.acceptInvitation] Plan set to enterprise (owner is admin)');
-      } else {
-        planToSet = 'starter';
-        console.log('[InvitationService.acceptInvitation] Plan set to starter');
-      }
-    } catch (e) {
-      console.log('[InvitationService.acceptInvitation] Error determining plan:', e);
-    }
-
     // Check if already a member
     const isAlreadyMember = promoteur.teamMembers.some(member =>
       member.userId.toString() === userId
@@ -169,6 +153,7 @@ export class InvitationService {
 
     console.log('[InvitationService.acceptInvitation] Is already member:', isAlreadyMember);
     console.log('[InvitationService.acceptInvitation] Team members count:', promoteur.teamMembers.length);
+    console.log('[InvitationService.acceptInvitation] Current promoteur plan:', promoteur.plan);
 
     if (isAlreadyMember) {
       console.log('[InvitationService.acceptInvitation] ERROR: User is already a team member');
@@ -182,11 +167,9 @@ export class InvitationService {
       addedAt: new Date()
     });
 
-    // Mettre à jour le plan si besoin
-    if (promoteur.plan !== planToSet) {
-      promoteur.plan = planToSet;
-      console.log('[InvitationService.acceptInvitation] Updated plan to:', planToSet);
-    }
+    // Note: Plan is NOT changed when accepting invitation
+    // Plan only changes through explicit upgrade/downgrade or subscription changes
+    console.log('[InvitationService.acceptInvitation] Plan remains unchanged:', promoteur.plan);
 
     console.log('[InvitationService.acceptInvitation] Saving promoteur...');
     await promoteur.save();

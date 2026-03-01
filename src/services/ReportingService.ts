@@ -339,7 +339,7 @@ export class ReportingService {
   static async generateDisciplineDashboard() {
     const projects = await Project.find({
       publicationStatus: 'published',
-      status: { $in: ['en-construction', 'gros-oeuvre'] },
+      status: { $in: ['demarrage-chantier', 'fondations', 'gros-oeuvres', 'second-oeuvres'] },
     }).populate('promoteur');
 
     const dashboard: any[] = [];

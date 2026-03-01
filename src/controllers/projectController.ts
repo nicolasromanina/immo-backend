@@ -1436,8 +1436,7 @@ export class ProjectController {
         return res.status(403).json({ message: 'Not authorized to delete this project' });
       }
 
-      // Archive instead of delete
-      project.status = 'archive';
+      // Archive instead of delete (mark as unpublished)
       project.publicationStatus = 'draft';
       await project.save();
 
@@ -1477,6 +1476,13 @@ export class ProjectController {
         return res.status(404).json({ message: 'Project not found' });
       }
 
+      console.log(`[submitForPublication] Project "${project.title}" (${id}) validation:`, {
+        hasCoverImage: !!project.media?.coverImage,
+        coverImageValue: project.media?.coverImage,
+        typologiesCount: project.typologies?.length || 0,
+        typologiesValue: project.typologies
+      });
+
       // Check authorization
       const canModify = await ProjectController.canModifyProject(req.user!.id, id);
       if (!canModify) {
@@ -1484,14 +1490,33 @@ export class ProjectController {
       }
 
       // Check if project has minimum required info
-      if (!project.media.coverImage || project.typologies.length === 0) {
+      const missingElements = [];
+      
+      // Vérifier la couverture image
+      if (!project.media || !project.media.coverImage) {
+        missingElements.push('cover image');
+      }
+      
+      // Vérifier les typologies
+      if (!project.typologies || !Array.isArray(project.typologies) || project.typologies.length === 0) {
+        missingElements.push('at least one typology');
+      }
+      
+      if (missingElements.length > 0) {
+        console.warn(`[submitForPublication] Publication rejected for "${project.title}": missing ${missingElements.join(', ')}`);
         return res.status(400).json({ 
-          message: 'Project must have a cover image and at least one typology' 
+          message: `Cannot publish: missing ${missingElements.join(' and ')}`,
+          details: {
+            coverImage: !!project.media?.coverImage,
+            typologies: project.typologies?.length || 0
+          }
         });
       }
 
       project.publicationStatus = 'pending';
       await project.save();
+
+      console.log(`[submitForPublication] Project "${project.title}" successfully submitted for publication`);
 
       await AuditLogService.logFromRequest(
         req,
@@ -1522,7 +1547,7 @@ export class ProjectController {
       const { status, page = 1, limit = 20 } = req.query;
 
       const query: any = { promoteur: user.promoteurProfile };
-      if (status) query.publicationStatus = status;
+      if (status) query.status = status;
 
       const skip = (Number(page) - 1) * Number(limit);
 
@@ -1701,26 +1726,30 @@ export class ProjectController {
         return res.status(403).json({ message: 'Not authorized to pause this project' });
       }
 
-      // Cannot pause if already completed or archived
-      if (project.status === 'livre' || project.status === 'archive') {
-        return res.status(400).json({ message: 'Cannot pause completed or archived projects' });
+      // Cannot pause if already paused or completed
+      if (project.pauseInfo) {
+        return res.status(400).json({ message: 'Project is already paused' });
+      }
+
+      if (project.status === 'livraison') {
+        return res.status(400).json({ message: 'Cannot pause completed projects' });
       }
 
       const oldStatus = project.status;
-      project.status = 'pause';
       project.pauseInfo = {
         reason,
         description,
         pausedAt: new Date(),
         estimatedResumeDate: estimatedResumeDate ? new Date(estimatedResumeDate) : undefined,
-        supportingDocuments
+        supportingDocuments,
+        statusBeforePause: oldStatus
       };
 
       // Add to change log
       project.changesLog.push({
-        field: 'status',
-        oldValue: oldStatus,
-        newValue: 'pause',
+        field: 'pause',
+        oldValue: 'active',
+        newValue: 'paused',
         reason: `Project paused: ${description}`,
         changedBy: req.user!.id as any,
         changedAt: new Date()
@@ -1770,30 +1799,33 @@ export class ProjectController {
         return res.status(403).json({ message: 'Not authorized to resume this project' });
       }
 
-      if (project.status !== 'pause') {
+      if (!project.pauseInfo) {
         return res.status(400).json({ message: 'Project is not paused' });
       }
 
       const allowedResumeStatuses = new Set([
+        'permis-de-construire',
         'pre-commercialisation',
-        'en-construction',
-        'gros-oeuvre',
-        'livre',
-        'suspended',
+        'demarrage-chantier',
+        'fondations',
+        'gros-oeuvres',
+        'second-oeuvres',
+        'livraison',
       ]);
       if (!newStatus || !allowedResumeStatuses.has(newStatus)) {
         return res.status(400).json({ message: 'Invalid newStatus value' });
       }
 
-      const oldStatus = project.status;
+      const statusBeforePause = project.pauseInfo.statusBeforePause || project.status;
       project.status = newStatus;
+      const pauseInfo = project.pauseInfo; // Keep for logging
       project.pauseInfo = undefined; // Clear pause info
 
       // Add to change log
       project.changesLog.push({
-        field: 'status',
-        oldValue: oldStatus,
-        newValue: newStatus,
+        field: 'pause',
+        oldValue: 'paused',
+        newValue: 'active',
         reason: 'Project resumed',
         changedBy: req.user!.id as any,
         changedAt: new Date()

@@ -6,7 +6,6 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.startPlanChangeJob = void 0;
 const node_cron_1 = __importDefault(require("node-cron"));
 const Promoteur_1 = __importDefault(require("../models/Promoteur"));
-const Project_1 = __importDefault(require("../models/Project"));
 const AuditLogService_1 = require("../services/AuditLogService");
 const NotificationService_1 = require("../services/NotificationService");
 const startPlanChangeJob = () => {
@@ -27,9 +26,8 @@ const startPlanChangeJob = () => {
                 const { requestedPlan, requestType } = promoteur.planChangeRequest;
                 try {
                     if (requestType === 'cancel') {
-                        // Archive all projects
-                        await Project_1.default.updateMany({ promoteur: promoteur._id }, { status: 'archive' });
-                        // Update promoteur
+                        // Update promoteur subscription
+                        // Note: Projects are left in their current status
                         promoteur.plan = 'starter';
                         promoteur.subscriptionStatus = 'expired';
                         promoteur.subscriptionEndDate = now;

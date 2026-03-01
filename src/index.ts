@@ -28,6 +28,7 @@ import { startSLAMonitoringJob } from './jobs/slaMonitoringJob';
 import { startBadgeExpirationJob } from './jobs/badgeExpirationJob';
 import { startPriceRecalculationJob } from './jobs/priceRecalculationJob';
 import { startOnboardingReminderJob } from './jobs/onboardingReminderJob';
+import { startUncontactedLeadsNotificationJob } from './jobs/notifyUncontactedLeadsJobWrapper';
 import { initAdsCronJobs, initAdsCronJobsOnStartup } from './cron/adsCronJobs';
 
 const PORT = process.env.PORT || 5000;
@@ -62,6 +63,8 @@ connectDB().then(() => {
 	startBadgeExpirationJob();
 	startPriceRecalculationJob();
 	startOnboardingReminderJob();
-	
+	// Lead management jobs - v5
+	startUncontactedLeadsNotificationJob();
+
 	server.listen(PORT, () => console.log(`Server running on port ${PORT} with WebSocket support`));
 });

@@ -7,6 +7,7 @@ exports.ChatController = void 0;
 const RealChatService_1 = require("../services/RealChatService");
 const Lead_1 = __importDefault(require("../models/Lead"));
 const User_1 = __importDefault(require("../models/User"));
+const Promoteur_1 = __importDefault(require("../models/Promoteur"));
 class ChatController {
     static async createConversation(req, res) {
         try {
@@ -74,8 +75,24 @@ class ChatController {
     static async getConversations(req, res) {
         try {
             const userId = req.user.id;
-            console.log('[CHAT][CTRL] getConversations - userId:', userId);
-            const convs = await RealChatService_1.RealChatService.getConversationsForUser(userId);
+            const promoteurId = req.user.promoteurProfile;
+            console.log('[CHAT][CTRL] getConversations - userId:', userId, 'promoteurId:', promoteurId);
+            // If user has promoteurProfile (from middleware), check if they're a team member
+            let convs = [];
+            if (promoteurId) {
+                const promoteur = await Promoteur_1.default.findById(promoteurId).select('user teamMembers');
+                const isOwner = promoteur?.user.toString() === userId;
+                const isTeamMember = promoteur?.teamMembers.some((m) => m.userId.toString() === userId);
+                if (isOwner || isTeamMember) {
+                    // Return all conversations from the promoteur's leads
+                    convs = await RealChatService_1.RealChatService.getConversationsForPromoter(promoteurId);
+                    console.log('[CHAT][CTRL] getConversations - team member/owner found', convs.length, 'conversations');
+                }
+            }
+            // Fallback: if not a team member, get conversations where user is a direct participant
+            if (convs.length === 0) {
+                convs = await RealChatService_1.RealChatService.getConversationsForUser(userId);
+            }
             console.log('[CHAT][CTRL] getConversations - conversations found:', convs.length);
             res.json({ conversations: convs });
         }

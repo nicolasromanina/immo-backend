@@ -62,6 +62,9 @@ const BrochureRequestSchema = new mongoose_1.Schema({
         enum: ['website', 'whatsapp', 'direct'],
         default: 'website'
     },
+    // Lead and conversation
+    lead: { type: mongoose_1.Schema.Types.ObjectId, ref: 'Lead' },
+    conversation: { type: mongoose_1.Schema.Types.ObjectId, ref: 'RealtimeConversation' },
 }, { timestamps: true });
 BrochureRequestSchema.index({ project: 1, email: 1 });
 exports.default = mongoose_1.default.model('BrochureRequest', BrochureRequestSchema);

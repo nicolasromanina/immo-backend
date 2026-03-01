@@ -234,17 +234,18 @@ router.post('/accept-invitation/:token', authenticateJWT, async (req: AuthReques
     const result = await InvitationService.acceptInvitation(req.params.token, req.user!.id);
     console.log('[acceptInvitation] Invitation accepted, user roles:', result.user?.roles);
 
-    // Après avoir accepté l'invitation, générer un nouveau JWT avec les nouveaux rôles
+    // Après avoir accepté l'invitation, générer un nouveau JWT avec les nouveaux rôles et promoteurProfile
     console.log('[acceptInvitation] Generating new JWT with updated roles...');
     const newJWT = jwt.sign(
-      { 
-        id: result.user!._id, 
-        roles: result.user!.roles 
+      {
+        id: result.user!._id,
+        roles: result.user!.roles,
+        promoteurProfile: result.user!.promoteurProfile
       },
       getJwtSecret(),
       { expiresIn: '24h' }
     );
-    console.log('[acceptInvitation] New JWT generated with roles:', result.user!.roles);
+    console.log('[acceptInvitation] New JWT generated with roles:', result.user!.roles, 'promoteurProfile:', result.user!.promoteurProfile);
 
     res.json({ 
       ...result, 

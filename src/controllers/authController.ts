@@ -26,9 +26,9 @@ export const login = async (req: Request, res: Response) => {
     if (!user) return res.status(400).json({ message: 'Invalid credentials' });
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) return res.status(400).json({ message: 'Invalid credentials' });
-    
-    const token = jwt.sign({ id: user._id, roles: user.roles }, getJwtSecret(), { expiresIn: '1d' });
-    console.log('[AuthController.login] User roles after login:', user.roles);
+
+    const token = jwt.sign({ id: user._id, roles: user.roles, promoteurProfile: user.promoteurProfile }, getJwtSecret(), { expiresIn: '1d' });
+    console.log('[AuthController.login] User roles after login:', user.roles, 'promoteurProfile:', user.promoteurProfile);
     console.log('[AuthController.login] Token issued for user:', user.email, 'roles:', user.roles);
     res.json({ token });
   } catch (error) {

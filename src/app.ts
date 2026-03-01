@@ -8,6 +8,7 @@ import projectRoutes from './routes/projectRoutes';
 import leadRoutes from './routes/leadRoutes';
 import updateRoutes from './routes/updateRoutes';
 import documentRoutes from './routes/documentRoutes';
+import documentAccessRequestRoutes from './routes/documentAccessRequestRoutes';
 import clientRoutes from './routes/clientRoutes';
 import adminRoutes from './routes/adminRoutes';
 import templateRoutes from './routes/templateRoutes';
@@ -32,6 +33,7 @@ import invoiceRoutes from './routes/invoiceRoutes';
 import securityRoutes from './routes/securityRoutes';
 import trustScoreRoutes from './routes/trustScoreRoutes';
 import brochureRoutes from './routes/brochureRoutes';
+import projectBrochureRoutes from './routes/projectBrochureRoutes';
 import enterpriseContractRoutes from './routes/enterpriseContractRoutes';
 
 // New feature routes - v2
@@ -124,6 +126,7 @@ app.use('/api/projects', projectRoutes);
 app.use('/api/leads', leadRoutes);
 app.use('/api/updates', updateRoutes);
 app.use('/api/documents', documentRoutes);
+app.use('/api/document-access-requests', documentAccessRequestRoutes);
 app.use('/api/client', clientRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/chat', ChatRoutes);
@@ -151,6 +154,7 @@ app.use('/api/invoices', invoiceRoutes);
 app.use('/api/security-incidents', securityRoutes);
 app.use('/api/trust-score-config', trustScoreRoutes);
 app.use('/api/brochures', brochureRoutes);
+app.use('/api/project-brochures', projectBrochureRoutes);
 app.use('/api/enterprise-contracts', enterpriseContractRoutes);
 
 // New feature routes - v2

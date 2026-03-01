@@ -279,7 +279,7 @@ export class NotificationService {
   }) {
     // Find all admin users
     const admins = await User.find({ roles: 'admin' });
-    
+
     const notifications = admins.map(admin =>
       this.create({
         recipient: admin._id.toString(),
@@ -292,5 +292,31 @@ export class NotificationService {
     );
 
     return Promise.all(notifications);
+  }
+
+  /**
+   * Notify promoteur that a lead has not been contacted after X days
+   */
+  static async notifyUncontactedLead(params: {
+    promoteurUserId: string;
+    leadId: string;
+    projectTitle: string;
+    leadName: string;
+    daysSinceCreation: number;
+  }): Promise<any> {
+    return this.create({
+      recipient: params.promoteurUserId,
+      type: 'reminder',
+      title: `Lead non contacté après ${params.daysSinceCreation} jours`,
+      message: `${params.leadName} depuis le projet "${params.projectTitle}" n'a pas encore été contacté.`,
+      relatedLead: params.leadId,
+      priority: 'high',
+      actionUrl: `/crm/leads/${params.leadId}`,
+      actionLabel: 'Voir le lead',
+      channels: {
+        email: true,
+        inApp: true,
+      },
+    });
   }
 }

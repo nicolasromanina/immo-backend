@@ -1,3 +1,4 @@
+import mongoose from 'mongoose';
 import Lead from '../models/Lead';
 import Project from '../models/Project';
 import Promoteur from '../models/Promoteur';
@@ -161,40 +162,48 @@ export class LeadScoringService {
       }],
       contactMethod: params.contactMethod,
       initialMessage: normalizedMessage || 'Demande de contact',
-      source: params.source || 'website',
+      source: params.source || 'contact-form',
+      tags: ['not-contacted'], // Initialize tags explicitly
       isSerious: true,
       responseSLA: true,
     });
 
     await lead.save();
 
-    // Create conversation between client and promoteur (use promoteur's user id)
+    // Create conversation between client and promoteur for ALL authenticated client requests
+    // This includes: document access, brochure, appointments, contact forms, etc.
     if (params.clientId) {
-        const promoteurDoc = await Promoteur.findById(params.promoteurId).populate('user');
-        const promoteurUserId = (promoteurDoc?.user as any)?._id?.toString();
+        try {
+            const promoteurDoc = await Promoteur.findById(params.promoteurId).populate('user');
+            const promoteurUserId = (promoteurDoc?.user as any)?._id?.toString();
 
-        const participants = [
-          { user: params.clientId, role: 'client' },
-          { user: promoteurUserId || params.promoteurId, role: 'promoteur' },
-        ];
+            const participants = [
+              { user: params.clientId, role: 'client' },
+              { user: promoteurUserId || params.promoteurId, role: 'promoteur' },
+            ];
 
-        const conversation = await RealChatService.createConversation(participants);
+            const conversation = await RealChatService.createConversation(participants);
 
-        // Log for debugging: created conversation and resolved promoteur user id
-        console.info('[LeadScoring] Created conversation', {
-          conversationId: conversation._id?.toString(),
-          promoteurId: params.promoteurId,
-          promoteurUserId,
-          clientId: params.clientId,
-        });
+            // Log for debugging: created conversation and resolved promoteur user id
+            console.info('[LeadScoring] Created conversation for lead', {
+              conversationId: conversation._id?.toString(),
+              promoteurId: params.promoteurId,
+              promoteurUserId,
+              clientId: params.clientId,
+              source: params.source,
+            });
 
-        // Add initial message from client
-        await RealChatService.addMessage(
-          conversation._id.toString(),
-          params.clientId,
-          params.initialMessage,
-          'text'
-        );
+            // Add initial message from client
+            await RealChatService.addMessage(
+              conversation._id.toString(),
+              params.clientId,
+              params.initialMessage,
+              'text'
+            );
+        } catch (err: any) {
+            console.warn('[LeadScoring] Error creating conversation:', err.message);
+            // Don't fail lead creation if conversation fails
+        }
     }
 
     // Update project stats
@@ -226,7 +235,7 @@ export class LeadScoringService {
     lead.pipeline.push({
       status: newStatus,
       changedAt: new Date(),
-      changedBy: userId as any,
+      changedBy: new mongoose.Types.ObjectId(userId),
       notes,
     });
 
@@ -247,11 +256,19 @@ export class LeadScoringService {
     if (!lead) throw new Error('Lead not found');
 
     const responseTime = (Date.now() - lead.createdAt.getTime()) / (1000 * 60 * 60); // hours
-    lead.responseTime = responseTime;
-    lead.responseSLA = responseTime <= 24; // SLA is 24 hours
-    lead.lastContactDate = new Date();
+    const responseSLA = responseTime <= 24; // SLA is 24 hours
 
-    await lead.save();
-    return lead;
+    // Use findByIdAndUpdate for atomic operation to avoid conflicts with concurrent updates
+    const updatedLead = await Lead.findByIdAndUpdate(
+      leadId,
+      {
+        responseTime: responseTime,
+        responseSLA: responseSLA,
+        lastContactDate: new Date(),
+      },
+      { new: true }
+    );
+
+    return updatedLead;
   }
 }

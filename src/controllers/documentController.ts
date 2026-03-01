@@ -4,6 +4,7 @@ import { AuthRequest } from '../middlewares/auth';
 import Document from '../models/Document';
 import Project from '../models/Project';
 import User from '../models/User';
+import Lead from '../models/Lead';
 import { AuditLogService } from '../services/AuditLogService';
 import { TrustScoreService } from '../services/TrustScoreService';
 import { DataRoomService } from '../services/DataRoomService';
@@ -73,7 +74,7 @@ export class DocumentController {
         tags: tags || [],
         uploadedBy: user._id,
         uploadedAt: new Date(),
-        status: 'en-attente',
+        status: 'fourni',
         expiresAt: expiresAt ? new Date(expiresAt) : undefined,
         version: 1,
         verified: false,
@@ -139,6 +140,28 @@ export class DocumentController {
       const isAdmin = req.user?.roles && req.user.roles.includes(Role.ADMIN);
       const isOwner = user?.promoteurProfile?.toString() === project.promoteur.toString();
 
+      // Check if user is a qualified lead for this project
+      const qualifiedLeadStatuses = ['contacte', 'rdv-planifie', 'visite-effectuee', 'proposition-envoyee', 'negocie', 'gagne'];
+      let isQualifiedLead = false;
+      
+      if (req.user?.id && !isOwner && !isAdmin) {
+        // eslint-disable-next-line no-console
+        console.log('[Backend] Vérification du statut du lead pour userId:', req.user.id);
+        const lead = await Lead.findOne({
+          project: new Types.ObjectId(projectId),
+          client: new Types.ObjectId(req.user.id),
+        });
+
+        if (lead && qualifiedLeadStatuses.includes(lead.status)) {
+          isQualifiedLead = true;
+          // eslint-disable-next-line no-console
+          console.log('[Backend] Utilisateur est un lead qualifié avec statut:', lead.status);
+        } else if (lead) {
+          // eslint-disable-next-line no-console
+          console.log('[Backend] Utilisateur est un lead mais pas qualifié - statut:', lead.status);
+        }
+      }
+
       // eslint-disable-next-line no-console
       console.log('[Backend] Vérification d\'identité:');
       // eslint-disable-next-line no-console
@@ -151,21 +174,39 @@ export class DocumentController {
       console.log('  - isAdmin:', isAdmin);
       // eslint-disable-next-line no-console
       console.log('  - isOwner:', isOwner);
+      // eslint-disable-next-line no-console
+      console.log('  - isQualifiedLead:', isQualifiedLead);
 
       if (!isAdmin) {
         if (!isOwner) {
-          query.visibility = 'public';
-          // eslint-disable-next-line no-console
-          console.log('[Backend] Utilisateur NON propriétaire - filtre visibility = public appliqué');
+          // Non-admin, non-owner: can only see VERIFIED PUBLIC documents
+          // Private documents are only visible to the owner
+          query.verified = true;
+          
+          if (isQualifiedLead) {
+            // Qualified lead can see VERIFIED documents that are PUBLIC or SHARED (not PRIVATE)
+            query.visibility = { $in: ['public', 'shared'] };
+            // eslint-disable-next-line no-console
+            console.log('[Backend] Lead qualifié - filtre: verified=true + visibility IN [public, shared]');
+          } else {
+            // Unqualified user can ONLY see VERIFIED PUBLIC documents (not shared, not private)
+            query.visibility = 'public';
+            // eslint-disable-next-line no-console
+            console.log('[Backend] Utilisateur NON qualifié - filtre: verified=true + visibility = public UNIQUEMENT');
+          }
         } else {
+          // Owner can see all their documents, optionally filtered by visibility query param
           if (visibility) query.visibility = visibility;
           // eslint-disable-next-line no-console
-          console.log('[Backend] Utilisateur est propriétaire - pas de filtre visibility');
+          console.log('[Backend] Utilisateur est propriétaire - voit tous les documents');
         }
       } else {
         // eslint-disable-next-line no-console
-        console.log('[Backend] Admin - pas de filtre visibility');
+        console.log('[Backend] Admin - pas de filtre verified');
       }
+
+      // Filter only 'fourni' status documents
+      query.status = 'fourni';
 
       if (category) query.category = category;
       if (status) query.status = status;
@@ -216,12 +257,19 @@ export class DocumentController {
 
       // Check access
       const user = await User.findById(req.user?.id);
+      const { Role } = require('../config/roles');
+      const isAdmin = req.user?.roles && req.user.roles.includes(Role.ADMIN);
       const isOwner = user?.promoteurProfile?.toString() === document.promoteur.toString();
       const isSharedWith = document.sharedWith.some(
         (userId: any) => userId.toString() === req.user?.id
       );
 
-      if (document.visibility === 'private' && !isOwner && !isSharedWith) {
+      // Non-approved documents can only be accessed by: admin or owner
+      if (!document.verified && !isAdmin && !isOwner) {
+        return res.status(403).json({ message: 'Document not yet approved' });
+      }
+
+      if (document.visibility === 'private' && !isOwner && !isSharedWith && !isAdmin) {
         return res.status(403).json({ message: 'Access denied' });
       }
 
@@ -543,6 +591,42 @@ export class DocumentController {
       res.json(result);
     } catch (error: any) {
       res.status(error.message.includes('Invalid') ? 404 : 400).json({ message: error.message });
+    }
+  }
+
+  /**
+   * Get all pending documents awaiting admin approval
+   */
+  static async getPendingDocuments(req: AuthRequest, res: Response) {
+    try {
+      const { projectId, limit = 50, skip = 0 } = req.query;
+
+      const query: any = { verified: false };
+      
+      if (projectId) {
+        const { Types } = require('mongoose');
+        query.project = new Types.ObjectId(projectId);
+      }
+
+      const documents = await Document.find(query)
+        .sort({ uploadedAt: -1 })
+        .skip(Number(skip))
+        .limit(Number(limit))
+        .populate('project', 'title slug')
+        .populate('promoteur', 'organizationName')
+        .populate('uploadedBy', 'firstName lastName');
+
+      const total = await Document.countDocuments(query);
+
+      res.json({
+        documents,
+        total,
+        limit: Number(limit),
+        skip: Number(skip),
+      });
+    } catch (error) {
+      console.error('Error getting pending documents:', error);
+      res.status(500).json({ message: 'Server error' });
     }
   }
 

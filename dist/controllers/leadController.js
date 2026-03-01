@@ -48,6 +48,7 @@ const NotificationService_1 = require("../services/NotificationService");
 const RealTimeNotificationService_1 = require("../services/RealTimeNotificationService");
 const AuditLogService_1 = require("../services/AuditLogService");
 const CRMWebhookService_1 = require("../services/CRMWebhookService");
+const LeadTagService_1 = require("../services/LeadTagService");
 class LeadController {
     /**
      * Create a lead (from client side)
@@ -91,7 +92,7 @@ class LeadController {
                 interestedTypology,
                 initialMessage,
                 contactMethod,
-                source: 'website',
+                source: 'contact-form',
             });
             // Update promoteur stats
             await Promoteur_1.default.findByIdAndUpdate(project.promoteur, {
@@ -133,12 +134,13 @@ class LeadController {
      */
     static async getLeads(req, res) {
         try {
-            const user = await User_1.default.findById(req.user.id);
-            if (!user?.promoteurProfile) {
+            // Use promoteurProfile from middleware (already resolved for owner or team member)
+            const promoteurId = req.user.promoteurProfile;
+            if (!promoteurId) {
                 return res.status(403).json({ message: 'Only promoteurs can access leads' });
             }
             const { projectId, status, score, page = 1, limit = 20, } = req.query;
-            const query = { promoteur: user.promoteurProfile };
+            const query = { promoteur: promoteurId };
             if (projectId)
                 query.project = projectId;
             if (status)
@@ -155,12 +157,12 @@ class LeadController {
             const total = await Lead_1.default.countDocuments(query);
             // Stats by score
             const scoreStats = await Lead_1.default.aggregate([
-                { $match: { promoteur: user.promoteurProfile } },
+                { $match: { promoteur: promoteurId } },
                 { $group: { _id: '$score', count: { $sum: 1 } } },
             ]);
             // Stats by status
             const statusStats = await Lead_1.default.aggregate([
-                { $match: { promoteur: user.promoteurProfile } },
+                { $match: { promoteur: promoteurId } },
                 { $group: { _id: '$status', count: { $sum: 1 } } },
             ]);
             res.json({
@@ -188,7 +190,7 @@ class LeadController {
     static async getLead(req, res) {
         try {
             const { id } = req.params;
-            const user = await User_1.default.findById(req.user.id);
+            const promoteurId = req.user.promoteurProfile;
             const lead = await Lead_1.default.findById(id)
                 .populate('project', 'title slug media')
                 .populate('client', 'firstName lastName email phone')
@@ -196,8 +198,8 @@ class LeadController {
             if (!lead) {
                 return res.status(404).json({ message: 'Lead not found' });
             }
-            // Check ownership
-            if (lead.promoteur.toString() !== user?.promoteurProfile?.toString()) {
+            // Check ownership - use promoteurId from middleware
+            if (lead.promoteur.toString() !== promoteurId?.toString()) {
                 return res.status(403).json({ message: 'Not authorized to view this lead' });
             }
             res.json({ lead });
@@ -214,39 +216,47 @@ class LeadController {
         try {
             const { id } = req.params;
             const { status, notes } = req.body;
-            const user = await User_1.default.findById(req.user.id);
+            const promoteurId = req.user.promoteurProfile;
+            const userId = req.user.id;
+            if (!promoteurId) {
+                return res.status(403).json({ message: 'Not authorized - promoteur profile not found' });
+            }
             const lead = await Lead_1.default.findById(id);
             if (!lead) {
                 return res.status(404).json({ message: 'Lead not found' });
             }
-            // Check ownership
-            if (lead.promoteur.toString() !== user?.promoteurProfile?.toString()) {
+            // Check ownership - use promoteurId from middleware
+            if (lead.promoteur.toString() !== promoteurId.toString()) {
                 return res.status(403).json({ message: 'Not authorized' });
             }
             const { PlanLimitService } = await Promise.resolve().then(() => __importStar(require('../services/PlanLimitService')));
-            const canUsePipeline = await PlanLimitService.checkCapability(user.promoteurProfile.toString(), 'leadPipeline');
+            const canUsePipeline = await PlanLimitService.checkCapability(promoteurId.toString(), 'leadPipeline');
             if (!canUsePipeline) {
                 return res.status(403).json({
                     message: 'Le pipeline avance de leads n est pas disponible sur votre plan',
                     upgrade: true,
                 });
             }
+            // Update lead status first
+            await LeadScoringService_1.LeadScoringService.updateLeadStatus(id, status, userId.toString(), notes);
             // Record first contact if status changes from 'nouveau'
             if (lead.status === 'nouveau' && status !== 'nouveau') {
+                // Record response time
                 await LeadScoringService_1.LeadScoringService.recordResponse(id);
+                // Mark lead as contacted (do this AFTER updateLeadStatus to avoid conflicts)
+                await LeadTagService_1.LeadTagService.markAsContacted(id);
                 // Update promoteur average response time
                 const allLeads = await Lead_1.default.find({
-                    promoteur: user.promoteurProfile,
+                    promoteur: promoteurId,
                     responseTime: { $exists: true }
                 });
                 if (allLeads.length > 0) {
                     const avgResponseTime = allLeads.reduce((sum, l) => sum + (l.responseTime || 0), 0) / allLeads.length;
-                    await Promoteur_1.default.findByIdAndUpdate(user.promoteurProfile, {
+                    await Promoteur_1.default.findByIdAndUpdate(promoteurId, {
                         averageResponseTime: avgResponseTime,
                     });
                 }
             }
-            await LeadScoringService_1.LeadScoringService.updateLeadStatus(id, status, user._id.toString(), notes);
             const updatedLead = await Lead_1.default.findById(id);
             await AuditLogService_1.AuditLogService.logFromRequest(req, 'update_lead_status', 'lead', `Updated lead status to ${status}`, 'Lead', id, { oldStatus: lead.status, newStatus: status });
             await CRMWebhookService_1.CRMWebhookService.pushEvent({
@@ -406,18 +416,19 @@ class LeadController {
         try {
             const { id } = req.params;
             const { content, isPrivate } = req.body;
-            const user = await User_1.default.findById(req.user.id);
+            const promoteurId = req.user.promoteurProfile;
+            const userId = req.user.id;
             const lead = await Lead_1.default.findById(id);
             if (!lead) {
                 return res.status(404).json({ message: 'Lead not found' });
             }
-            // Check ownership
-            if (lead.promoteur.toString() !== user?.promoteurProfile?.toString()) {
+            // Check ownership - use promoteurId from middleware
+            if (lead.promoteur.toString() !== promoteurId?.toString()) {
                 return res.status(403).json({ message: 'Not authorized' });
             }
             lead.notes.push({
                 content,
-                addedBy: user._id,
+                addedBy: userId,
                 addedAt: new Date(),
                 isPrivate: isPrivate || false,
             });
@@ -436,13 +447,13 @@ class LeadController {
         try {
             const { id } = req.params;
             const { reason } = req.body;
-            const user = await User_1.default.findById(req.user.id);
+            const promoteurId = req.user.promoteurProfile;
             const lead = await Lead_1.default.findById(id);
             if (!lead) {
                 return res.status(404).json({ message: 'Lead not found' });
             }
-            // Check ownership
-            if (lead.promoteur.toString() !== user?.promoteurProfile?.toString()) {
+            // Check ownership - use promoteurId from middleware
+            if (lead.promoteur.toString() !== promoteurId?.toString()) {
                 return res.status(403).json({ message: 'Not authorized' });
             }
             lead.flaggedAsNotSerious = true;
@@ -462,12 +473,12 @@ class LeadController {
      */
     static async exportLeads(req, res) {
         try {
-            const user = await User_1.default.findById(req.user.id);
-            if (!user?.promoteurProfile) {
+            const promoteurId = req.user.promoteurProfile;
+            if (!promoteurId) {
                 return res.status(403).json({ message: 'Only promoteurs can export leads' });
             }
             const { PlanLimitService } = await Promise.resolve().then(() => __importStar(require('../services/PlanLimitService')));
-            const canExport = await PlanLimitService.checkCapability(user.promoteurProfile.toString(), 'leadExport');
+            const canExport = await PlanLimitService.checkCapability(promoteurId.toString(), 'leadExport');
             if (!canExport) {
                 return res.status(403).json({
                     message: 'L export CSV des leads n est pas disponible sur votre plan',
@@ -475,7 +486,7 @@ class LeadController {
                 });
             }
             const { projectId, status, score } = req.query;
-            const query = { promoteur: user.promoteurProfile };
+            const query = { promoteur: promoteurId };
             if (projectId)
                 query.project = projectId;
             if (status)
@@ -508,13 +519,13 @@ class LeadController {
         try {
             const { id } = req.params;
             const { teamMemberId } = req.body;
-            const user = await User_1.default.findById(req.user.id);
+            const promoteurId = req.user.promoteurProfile;
             const lead = await Lead_1.default.findById(id);
             if (!lead) {
                 return res.status(404).json({ message: 'Lead not found' });
             }
-            // Check ownership
-            if (lead.promoteur.toString() !== user?.promoteurProfile?.toString()) {
+            // Check ownership - use promoteurId from middleware
+            if (lead.promoteur.toString() !== promoteurId?.toString()) {
                 return res.status(403).json({ message: 'Not authorized' });
             }
             const { PlanLimitService } = await Promise.resolve().then(() => __importStar(require('../services/PlanLimitService')));

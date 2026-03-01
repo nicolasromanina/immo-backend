@@ -78,7 +78,7 @@ const UpdateSchema = new mongoose_1.Schema({
     risksIdentified: { type: String, required: true },
     projectStatus: {
         type: String,
-        enum: ['pre-commercialisation', 'en-construction', 'gros-oeuvre', 'livre', 'pause', 'archive', 'suspended'],
+        enum: ['permis-de-construire', 'pre-commercialisation', 'demarrage-chantier', 'fondations', 'gros-oeuvres', 'second-oeuvres', 'livraison'],
     },
     progressDescription: { type: String },
     expectedDeliveryDate: { type: Date },

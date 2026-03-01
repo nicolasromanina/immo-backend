@@ -83,8 +83,8 @@ const ProjectSchema = new mongoose_1.Schema({
     },
     status: {
         type: String,
-        enum: ['pre-commercialisation', 'en-construction', 'gros-oeuvre', 'livre', 'pause', 'archive', 'suspended'],
-        default: 'pre-commercialisation',
+        enum: ['permis-de-construire', 'pre-commercialisation', 'demarrage-chantier', 'fondations', 'gros-oeuvres', 'second-oeuvres', 'livraison'],
+        default: 'permis-de-construire',
         index: true
     },
     publicationStatus: {
@@ -99,6 +99,7 @@ const ProjectSchema = new mongoose_1.Schema({
         pausedAt: { type: Date },
         estimatedResumeDate: { type: Date },
         supportingDocuments: [{ type: String }],
+        statusBeforePause: { type: String },
     },
     media: {
         coverImage: { type: String },

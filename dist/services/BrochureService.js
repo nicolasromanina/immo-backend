@@ -6,10 +6,10 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.BrochureService = void 0;
 const BrochureRequest_1 = __importDefault(require("../models/BrochureRequest"));
 const Project_1 = __importDefault(require("../models/Project"));
-const Promoteur_1 = __importDefault(require("../models/Promoteur"));
-const Lead_1 = __importDefault(require("../models/Lead"));
+const ProjectBrochure_1 = __importDefault(require("../models/ProjectBrochure"));
 const NotificationService_1 = require("./NotificationService");
 const WhatsAppService_1 = require("./WhatsAppService");
+const RequestLeadService_1 = require("./RequestLeadService");
 class BrochureService {
     /**
      * Request a brochure for a project
@@ -27,7 +27,7 @@ class BrochureService {
         if (existingRequest) {
             throw new Error('Brochure already requested in the last 24 hours');
         }
-        const request = new BrochureRequest_1.default({
+        const request = await BrochureRequest_1.default.create({
             project: data.projectId,
             promoteur: project.promoteur,
             client: data.clientId,
@@ -38,7 +38,6 @@ class BrochureService {
             source: data.source || 'website',
             status: 'pending',
         });
-        await request.save();
         await NotificationService_1.NotificationService.create({
             recipient: project.promoteur.toString(),
             type: 'lead',
@@ -51,7 +50,25 @@ class BrochureService {
         await this.autoSendBrochure(request._id.toString());
         // Best effort: do not fail brochure request if lead creation fails
         try {
-            await this.createOrUpdateLead(data, project);
+            const { lead, conversation } = await RequestLeadService_1.RequestLeadService.createLeadFromRequest({
+                projectId: data.projectId,
+                promoteurId: project.promoteur.toString(),
+                clientId: data.clientId,
+                firstName: data.firstName,
+                lastName: data.lastName,
+                email: data.email,
+                phone: data.phone,
+                requestType: 'brochure',
+                initialMessage: 'Demande de brochure',
+            });
+            // Link lead to brochure request
+            if (lead) {
+                request.lead = lead._id;
+                if (conversation) {
+                    request.conversation = conversation._id;
+                }
+                await request.save();
+            }
         }
         catch (error) {
             console.error('Lead creation from brochure request failed:', error);
@@ -66,13 +83,25 @@ class BrochureService {
         if (!request)
             return;
         const project = request.project;
-        const hasBrochure = project.media?.renderings?.length > 0;
+        // Check for uploaded ProjectBrochure first, then fall back to media renderings
+        const projectBrochure = await ProjectBrochure_1.default.findOne({ project: project._id });
+        const hasBrochure = projectBrochure || (project.media?.renderings?.length > 0);
         if (hasBrochure) {
-            const downloadLink = `/api/brochures/${project._id}/download?token=${this.generateToken()}`;
+            // Use ProjectBrochure download link if available, otherwise use media rendering link
+            const downloadLink = projectBrochure
+                ? `/api/project-brochures/download/${projectBrochure._id}`
+                : `/api/brochures/${project._id}/download?token=${this.generateToken()}`;
             request.status = 'sent';
             request.sentAt = new Date();
             request.downloadLink = downloadLink;
+            request.sentVia = 'email'; // Default to email
             await request.save();
+            // Track the download in ProjectBrochure if it exists
+            if (projectBrochure) {
+                projectBrochure.totalDownloads = (projectBrochure.totalDownloads || 0) + 1;
+                projectBrochure.lastDownloadedAt = new Date();
+                await projectBrochure.save();
+            }
             await NotificationService_1.NotificationService.create({
                 recipient: request.email,
                 type: 'system',
@@ -89,65 +118,6 @@ class BrochureService {
     static generateToken() {
         return Math.random().toString(36).substring(2, 15) +
             Math.random().toString(36).substring(2, 15);
-    }
-    /**
-     * Create or update lead from brochure request
-     */
-    static async createOrUpdateLead(data, project) {
-        let actorUserId = data.clientId;
-        if (!actorUserId) {
-            const promoteur = await Promoteur_1.default.findById(project.promoteur).select('user');
-            actorUserId = promoteur?.user?.toString();
-        }
-        const existingLead = await Lead_1.default.findOne({
-            project: project._id,
-            email: data.email,
-        });
-        if (existingLead) {
-            return;
-        }
-        const lead = new Lead_1.default({
-            project: project._id,
-            promoteur: project.promoteur,
-            client: data.clientId || undefined,
-            firstName: data.firstName,
-            lastName: data.lastName,
-            email: data.email,
-            phone: data.phone || '',
-            budget: 0,
-            financingType: 'unknown',
-            timeframe: 'flexible',
-            contactMethod: 'email',
-            status: 'nouveau',
-            source: data.source || 'website',
-            score: 'C',
-            scoreDetails: {
-                budgetMatch: 50,
-                timelineMatch: 50,
-                engagementLevel: 30,
-                profileCompleteness: 50,
-            },
-            initialMessage: 'Demande de brochure',
-            notes: actorUserId ? [{
-                    content: 'Lead cree via demande de brochure',
-                    addedBy: actorUserId,
-                    addedAt: new Date(),
-                    isPrivate: false,
-                }] : [],
-            pipeline: actorUserId ? [{
-                    status: 'nouveau',
-                    changedAt: new Date(),
-                    changedBy: actorUserId,
-                    notes: 'Demande de brochure',
-                }] : [],
-        });
-        await lead.save();
-        await Project_1.default.findByIdAndUpdate(project._id, {
-            $inc: { totalLeads: 1 },
-        });
-        await Promoteur_1.default.findByIdAndUpdate(project.promoteur, {
-            $inc: { totalLeadsReceived: 1 },
-        });
     }
     /**
      * Track brochure download

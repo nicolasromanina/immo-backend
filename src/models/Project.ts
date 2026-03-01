@@ -59,7 +59,7 @@ export interface IProject extends Document {
   };
   
   // Status
-  status: 'pre-commercialisation' | 'en-construction' | 'gros-oeuvre' | 'livre' | 'pause' | 'archive' | 'suspended';
+  status: 'permis-de-construire' | 'pre-commercialisation' | 'demarrage-chantier' | 'fondations' | 'gros-oeuvres' | 'second-oeuvres' | 'livraison';
   publicationStatus: 'draft' | 'pending' | 'published' | 'rejected';
   
   pauseInfo?: {
@@ -68,6 +68,7 @@ export interface IProject extends Document {
     pausedAt: Date;
     estimatedResumeDate?: Date;
     supportingDocuments?: string[];
+    statusBeforePause?: string;
   };
   
   // Media
@@ -222,8 +223,8 @@ const ProjectSchema: Schema = new Schema({
   
   status: { 
     type: String, 
-    enum: ['pre-commercialisation', 'en-construction', 'gros-oeuvre', 'livre', 'pause', 'archive', 'suspended'],
-    default: 'pre-commercialisation',
+    enum: ['permis-de-construire', 'pre-commercialisation', 'demarrage-chantier', 'fondations', 'gros-oeuvres', 'second-oeuvres', 'livraison'],
+    default: 'permis-de-construire',
     index: true
   },
   publicationStatus: { 
@@ -239,6 +240,7 @@ const ProjectSchema: Schema = new Schema({
     pausedAt: { type: Date },
     estimatedResumeDate: { type: Date },
     supportingDocuments: [{ type: String }],
+    statusBeforePause: { type: String },
   },
   
   media: {
