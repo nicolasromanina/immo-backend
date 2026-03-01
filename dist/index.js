@@ -31,6 +31,7 @@ const slaMonitoringJob_1 = require("./jobs/slaMonitoringJob");
 const badgeExpirationJob_1 = require("./jobs/badgeExpirationJob");
 const priceRecalculationJob_1 = require("./jobs/priceRecalculationJob");
 const onboardingReminderJob_1 = require("./jobs/onboardingReminderJob");
+const notifyUncontactedLeadsJobWrapper_1 = require("./jobs/notifyUncontactedLeadsJobWrapper");
 const adsCronJobs_1 = require("./cron/adsCronJobs");
 const PORT = process.env.PORT || 5000;
 (0, db_1.connectDB)().then(() => {
@@ -62,5 +63,7 @@ const PORT = process.env.PORT || 5000;
     (0, badgeExpirationJob_1.startBadgeExpirationJob)();
     (0, priceRecalculationJob_1.startPriceRecalculationJob)();
     (0, onboardingReminderJob_1.startOnboardingReminderJob)();
+    // Lead management jobs - v5
+    (0, notifyUncontactedLeadsJobWrapper_1.startUncontactedLeadsNotificationJob)();
     server.listen(PORT, () => console.log(`Server running on port ${PORT} with WebSocket support`));
 });

@@ -140,4 +140,15 @@ const ABTestController_1 = require("../controllers/ABTestController");
 router.get('/ab-tests', ABTestController_1.ABTestController.getAllForAdmin);
 // Backfill trust score snapshots (admin)
 router.post('/trust-score-snapshots/backfill', adminController_1.AdminController.backfillTrustScoreSnapshots);
+// Trigger uncontacted leads notification job
+const notifyUncontactedLeadsJob_1 = require("../jobs/notifyUncontactedLeadsJob");
+router.post('/jobs/notify-uncontacted-leads', auth_1.authenticateJWT, (0, auth_1.authorizeRoles)(roles_1.Role.ADMIN), async (req, res) => {
+    try {
+        const result = await (0, notifyUncontactedLeadsJob_1.triggerNotifyUncontactedLeadsJob)();
+        res.json(result);
+    }
+    catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
 exports.default = router;

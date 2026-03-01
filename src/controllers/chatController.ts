@@ -3,6 +3,7 @@ import { RealChatService } from '../services/RealChatService';
 import { AuthRequest } from '../middlewares/auth';
 import Lead from '../models/Lead';
 import User from '../models/User';
+import Promoteur from '../models/Promoteur';
 
 export class ChatController {
   static async createConversation(req: AuthRequest, res: Response) {
@@ -73,8 +74,29 @@ export class ChatController {
   static async getConversations(req: AuthRequest, res: Response) {
     try {
       const userId = req.user!.id;
-      console.log('[CHAT][CTRL] getConversations - userId:', userId);
-      const convs = await RealChatService.getConversationsForUser(userId);
+      const promoteurId = req.user!.promoteurProfile;
+
+      console.log('[CHAT][CTRL] getConversations - userId:', userId, 'promoteurId:', promoteurId);
+
+      // If user has promoteurProfile (from middleware), check if they're a team member
+      let convs: any[] = [];
+      if (promoteurId) {
+        const promoteur = await Promoteur.findById(promoteurId).select('user teamMembers');
+        const isOwner = promoteur?.user.toString() === userId;
+        const isTeamMember = promoteur?.teamMembers.some((m: any) => m.userId.toString() === userId);
+
+        if (isOwner || isTeamMember) {
+          // Return all conversations from the promoteur's leads
+          convs = await RealChatService.getConversationsForPromoter(promoteurId);
+          console.log('[CHAT][CTRL] getConversations - team member/owner found', convs.length, 'conversations');
+        }
+      }
+
+      // Fallback: if not a team member, get conversations where user is a direct participant
+      if (convs.length === 0) {
+        convs = await RealChatService.getConversationsForUser(userId);
+      }
+
       console.log('[CHAT][CTRL] getConversations - conversations found:', convs.length);
       res.json({ conversations: convs });
     } catch (err) {

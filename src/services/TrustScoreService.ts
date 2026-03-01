@@ -179,7 +179,6 @@ export class TrustScoreService {
     
     // Penalties
     if (project.changesLog.length > 10) score -= projectWeights.penalties.changesLog;
-    if (project.status === 'suspended') score -= projectWeights.penalties.suspended;
 
     const threshold = project.projectType === 'villa'
       ? projectWeights.typeThresholds.villa

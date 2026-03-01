@@ -115,6 +115,7 @@ export function initWebSocket(server: HTTPServer): SocketServer {
           content: (msg as any).content,
           type: (msg as any).type,
           createdAt: (msg as any).createdAt,
+          readBy: (msg as any).readBy,
         };
         io?.to(`conversation:${data.conversationId}`).emit('chat:message', payload);
       } catch (err) {

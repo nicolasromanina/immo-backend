@@ -11,6 +11,7 @@ import { NotificationService } from '../services/NotificationService';
 import { RealTimeNotificationService } from '../services/RealTimeNotificationService';
 import { AuditLogService } from '../services/AuditLogService';
 import { CRMWebhookService } from '../services/CRMWebhookService';
+import { LeadTagService } from '../services/LeadTagService';
 
 export class LeadController {
   /**
@@ -76,7 +77,7 @@ export class LeadController {
         interestedTypology,
         initialMessage,
         contactMethod,
-        source: 'website',
+        source: 'contact-form',
       });
 
       // Update promoteur stats
@@ -125,8 +126,9 @@ export class LeadController {
    */
   static async getLeads(req: AuthRequest, res: Response) {
     try {
-      const user = await User.findById(req.user!.id);
-      if (!user?.promoteurProfile) {
+      // Use promoteurProfile from middleware (already resolved for owner or team member)
+      const promoteurId = req.user!.promoteurProfile;
+      if (!promoteurId) {
         return res.status(403).json({ message: 'Only promoteurs can access leads' });
       }
 
@@ -138,7 +140,7 @@ export class LeadController {
         limit = 20,
       } = req.query;
 
-      const query: any = { promoteur: user.promoteurProfile };
+      const query: any = { promoteur: promoteurId };
 
       if (projectId) query.project = projectId;
       if (status) query.status = status;
@@ -157,13 +159,13 @@ export class LeadController {
 
       // Stats by score
       const scoreStats = await Lead.aggregate([
-        { $match: { promoteur: user.promoteurProfile } },
+        { $match: { promoteur: promoteurId } },
         { $group: { _id: '$score', count: { $sum: 1 } } },
       ]);
 
       // Stats by status
       const statusStats = await Lead.aggregate([
-        { $match: { promoteur: user.promoteurProfile } },
+        { $match: { promoteur: promoteurId } },
         { $group: { _id: '$status', count: { $sum: 1 } } },
       ]);
 
@@ -192,7 +194,7 @@ export class LeadController {
   static async getLead(req: AuthRequest, res: Response) {
     try {
       const { id } = req.params;
-      const user = await User.findById(req.user!.id);
+      const promoteurId = req.user!.promoteurProfile;
 
       const lead = await Lead.findById(id)
         .populate('project', 'title slug media')
@@ -203,8 +205,8 @@ export class LeadController {
         return res.status(404).json({ message: 'Lead not found' });
       }
 
-      // Check ownership
-      if (lead.promoteur.toString() !== user?.promoteurProfile?.toString()) {
+      // Check ownership - use promoteurId from middleware
+      if (lead.promoteur.toString() !== promoteurId?.toString()) {
         return res.status(403).json({ message: 'Not authorized to view this lead' });
       }
 
@@ -222,20 +224,25 @@ export class LeadController {
     try {
       const { id } = req.params;
       const { status, notes } = req.body;
-      const user = await User.findById(req.user!.id);
+      const promoteurId = req.user!.promoteurProfile;
+      const userId = req.user!.id;
+
+      if (!promoteurId) {
+        return res.status(403).json({ message: 'Not authorized - promoteur profile not found' });
+      }
 
       const lead = await Lead.findById(id);
       if (!lead) {
         return res.status(404).json({ message: 'Lead not found' });
       }
 
-      // Check ownership
-      if (lead.promoteur.toString() !== user?.promoteurProfile?.toString()) {
+      // Check ownership - use promoteurId from middleware
+      if (lead.promoteur.toString() !== promoteurId.toString()) {
         return res.status(403).json({ message: 'Not authorized' });
       }
 
       const { PlanLimitService } = await import('../services/PlanLimitService');
-      const canUsePipeline = await PlanLimitService.checkCapability(user!.promoteurProfile.toString(), 'leadPipeline');
+      const canUsePipeline = await PlanLimitService.checkCapability(promoteurId.toString(), 'leadPipeline');
       if (!canUsePipeline) {
         return res.status(403).json({
           message: 'Le pipeline avance de leads n est pas disponible sur votre plan',
@@ -243,25 +250,30 @@ export class LeadController {
         });
       }
 
+      // Update lead status first
+      await LeadScoringService.updateLeadStatus(id, status, userId.toString(), notes);
+
       // Record first contact if status changes from 'nouveau'
       if (lead.status === 'nouveau' && status !== 'nouveau') {
+        // Record response time
         await LeadScoringService.recordResponse(id);
-        
+
+        // Mark lead as contacted (do this AFTER updateLeadStatus to avoid conflicts)
+        await LeadTagService.markAsContacted(id);
+
         // Update promoteur average response time
-        const allLeads = await Lead.find({ 
-          promoteur: user.promoteurProfile,
+        const allLeads = await Lead.find({
+          promoteur: promoteurId,
           responseTime: { $exists: true }
         });
-        
+
         if (allLeads.length > 0) {
           const avgResponseTime = allLeads.reduce((sum, l) => sum + (l.responseTime || 0), 0) / allLeads.length;
-          await Promoteur.findByIdAndUpdate(user.promoteurProfile, {
+          await Promoteur.findByIdAndUpdate(promoteurId, {
             averageResponseTime: avgResponseTime,
           });
         }
       }
-
-      await LeadScoringService.updateLeadStatus(id, status, user._id.toString(), notes);
 
       const updatedLead = await Lead.findById(id);
 
@@ -460,21 +472,22 @@ export class LeadController {
     try {
       const { id } = req.params;
       const { content, isPrivate } = req.body;
-      const user = await User.findById(req.user!.id);
+      const promoteurId = req.user!.promoteurProfile;
+      const userId = req.user!.id;
 
       const lead = await Lead.findById(id);
       if (!lead) {
         return res.status(404).json({ message: 'Lead not found' });
       }
 
-      // Check ownership
-      if (lead.promoteur.toString() !== user?.promoteurProfile?.toString()) {
+      // Check ownership - use promoteurId from middleware
+      if (lead.promoteur.toString() !== promoteurId?.toString()) {
         return res.status(403).json({ message: 'Not authorized' });
       }
 
       lead.notes.push({
         content,
-        addedBy: user._id as any,
+        addedBy: userId as any,
         addedAt: new Date(),
         isPrivate: isPrivate || false,
       });
@@ -495,15 +508,15 @@ export class LeadController {
     try {
       const { id } = req.params;
       const { reason } = req.body;
-      const user = await User.findById(req.user!.id);
+      const promoteurId = req.user!.promoteurProfile;
 
       const lead = await Lead.findById(id);
       if (!lead) {
         return res.status(404).json({ message: 'Lead not found' });
       }
 
-      // Check ownership
-      if (lead.promoteur.toString() !== user?.promoteurProfile?.toString()) {
+      // Check ownership - use promoteurId from middleware
+      if (lead.promoteur.toString() !== promoteurId?.toString()) {
         return res.status(403).json({ message: 'Not authorized' });
       }
 
@@ -534,13 +547,13 @@ export class LeadController {
    */
   static async exportLeads(req: AuthRequest, res: Response) {
     try {
-      const user = await User.findById(req.user!.id);
-      if (!user?.promoteurProfile) {
+      const promoteurId = req.user!.promoteurProfile;
+      if (!promoteurId) {
         return res.status(403).json({ message: 'Only promoteurs can export leads' });
       }
 
       const { PlanLimitService } = await import('../services/PlanLimitService');
-      const canExport = await PlanLimitService.checkCapability(user.promoteurProfile.toString(), 'leadExport');
+      const canExport = await PlanLimitService.checkCapability(promoteurId.toString(), 'leadExport');
       if (!canExport) {
         return res.status(403).json({
           message: 'L export CSV des leads n est pas disponible sur votre plan',
@@ -550,7 +563,7 @@ export class LeadController {
 
       const { projectId, status, score } = req.query;
 
-      const query: any = { promoteur: user.promoteurProfile };
+      const query: any = { promoteur: promoteurId };
       if (projectId) query.project = projectId;
       if (status) query.status = status;
       if (score) query.score = score;
@@ -584,15 +597,15 @@ export class LeadController {
     try {
       const { id } = req.params;
       const { teamMemberId } = req.body;
-      const user = await User.findById(req.user!.id);
+      const promoteurId = req.user!.promoteurProfile;
 
       const lead = await Lead.findById(id);
       if (!lead) {
         return res.status(404).json({ message: 'Lead not found' });
       }
 
-      // Check ownership
-      if (lead.promoteur.toString() !== user?.promoteurProfile?.toString()) {
+      // Check ownership - use promoteurId from middleware
+      if (lead.promoteur.toString() !== promoteurId?.toString()) {
         return res.status(403).json({ message: 'Not authorized' });
       }
 

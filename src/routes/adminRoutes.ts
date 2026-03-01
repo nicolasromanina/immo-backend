@@ -121,4 +121,15 @@ router.get('/ab-tests', ABTestController.getAllForAdmin);
 // Backfill trust score snapshots (admin)
 router.post('/trust-score-snapshots/backfill', AdminController.backfillTrustScoreSnapshots);
 
+// Trigger uncontacted leads notification job
+import { triggerNotifyUncontactedLeadsJob } from '../jobs/notifyUncontactedLeadsJob';
+router.post('/jobs/notify-uncontacted-leads', authenticateJWT, authorizeRoles(Role.ADMIN), async (req, res) => {
+  try {
+    const result = await triggerNotifyUncontactedLeadsJob();
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ success: false, message: (error as any).message });
+  }
+});
+
 export default router;

@@ -207,5 +207,24 @@ class NotificationService {
         }));
         return Promise.all(notifications);
     }
+    /**
+     * Notify promoteur that a lead has not been contacted after X days
+     */
+    static async notifyUncontactedLead(params) {
+        return this.create({
+            recipient: params.promoteurUserId,
+            type: 'reminder',
+            title: `Lead non contacté après ${params.daysSinceCreation} jours`,
+            message: `${params.leadName} depuis le projet "${params.projectTitle}" n'a pas encore été contacté.`,
+            relatedLead: params.leadId,
+            priority: 'high',
+            actionUrl: `/crm/leads/${params.leadId}`,
+            actionLabel: 'Voir le lead',
+            channels: {
+                email: true,
+                inApp: true,
+            },
+        });
+    }
 }
 exports.NotificationService = NotificationService;

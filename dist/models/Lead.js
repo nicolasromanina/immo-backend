@@ -108,10 +108,17 @@ const LeadSchema = new mongoose_1.Schema({
     responseSLA: { type: Boolean, default: true, index: true },
     source: {
         type: String,
-        enum: ['website', 'whatsapp', 'referral', 'direct', 'other'],
-        default: 'website'
+        enum: ['contact-form', 'document-access-request', 'brochure-request', 'appointment-request', 'website', 'whatsapp', 'referral', 'direct', 'other'],
+        default: 'other'
     },
     referralCode: { type: String },
+    tags: {
+        type: [String],
+        default: ['not-contacted'],
+        index: true,
+    },
+    firstContactDate: { type: Date },
+    notContactedReminderSent: { type: Date },
     isSerious: { type: Boolean, default: true },
     flaggedAsNotSerious: { type: Boolean, default: false },
     flagReason: { type: String },
@@ -125,4 +132,8 @@ LeadSchema.index({ promoteur: 1, status: 1, score: 1 });
 LeadSchema.index({ project: 1, status: 1 });
 LeadSchema.index({ createdAt: -1 });
 LeadSchema.index({ email: 1 });
+LeadSchema.index({ tags: 1 });
+LeadSchema.index({ source: 1 });
+LeadSchema.index({ promoteur: 1, tags: 1 }); // For filtering leads by promoteur and tags
+LeadSchema.index({ createdAt: 1, tags: 1, notContactedReminderSent: 1 }); // For 2-day reminder job
 exports.default = mongoose_1.default.model('Lead', LeadSchema);

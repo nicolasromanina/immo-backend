@@ -34,8 +34,8 @@ const login = async (req, res) => {
         const isMatch = await bcrypt_1.default.compare(password, user.password);
         if (!isMatch)
             return res.status(400).json({ message: 'Invalid credentials' });
-        const token = jsonwebtoken_1.default.sign({ id: user._id, roles: user.roles }, (0, jwt_1.getJwtSecret)(), { expiresIn: '1d' });
-        console.log('[AuthController.login] User roles after login:', user.roles);
+        const token = jsonwebtoken_1.default.sign({ id: user._id, roles: user.roles, promoteurProfile: user.promoteurProfile }, (0, jwt_1.getJwtSecret)(), { expiresIn: '1d' });
+        console.log('[AuthController.login] User roles after login:', user.roles, 'promoteurProfile:', user.promoteurProfile);
         console.log('[AuthController.login] Token issued for user:', user.email, 'roles:', user.roles);
         res.json({ token });
     }

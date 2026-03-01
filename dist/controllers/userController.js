@@ -58,8 +58,9 @@ const getProfile = async (req, res) => {
         status: user.status || 'active',
         emailVerified: user.emailVerified || false,
         phoneVerified: user.phoneVerified || false,
+        promoteurProfile: user.promoteurProfile || undefined,
     };
-    console.log('[UserController.getProfile] Sending profile response with roles:', safe.roles);
+    console.log('[UserController.getProfile] Sending profile response with roles:', safe.roles, 'promoteurProfile:', safe.promoteurProfile);
     res.json(safe);
 };
 exports.getProfile = getProfile;

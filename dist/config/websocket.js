@@ -114,6 +114,7 @@ function initWebSocket(server) {
                     content: msg.content,
                     type: msg.type,
                     createdAt: msg.createdAt,
+                    readBy: msg.readBy,
                 };
                 io?.to(`conversation:${data.conversationId}`).emit('chat:message', payload);
             }

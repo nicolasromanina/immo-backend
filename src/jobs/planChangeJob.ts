@@ -28,13 +28,8 @@ export const startPlanChangeJob = () => {
 
         try {
           if (requestType === 'cancel') {
-            // Archive all projects
-            await Project.updateMany(
-              { promoteur: promoteur._id },
-              { status: 'archive' }
-            );
-
-            // Update promoteur
+            // Update promoteur subscription
+            // Note: Projects are left in their current status
             promoteur.plan = 'starter';
             promoteur.subscriptionStatus = 'expired';
             promoteur.subscriptionEndDate = now;

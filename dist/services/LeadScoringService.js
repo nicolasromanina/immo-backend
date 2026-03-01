@@ -4,6 +4,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.LeadScoringService = void 0;
+const mongoose_1 = __importDefault(require("mongoose"));
 const Lead_1 = __importDefault(require("../models/Lead"));
 const Project_1 = __importDefault(require("../models/Project"));
 const Promoteur_1 = __importDefault(require("../models/Promoteur"));
@@ -135,29 +136,38 @@ class LeadScoringService {
                 }],
             contactMethod: params.contactMethod,
             initialMessage: normalizedMessage || 'Demande de contact',
-            source: params.source || 'website',
+            source: params.source || 'contact-form',
+            tags: ['not-contacted'], // Initialize tags explicitly
             isSerious: true,
             responseSLA: true,
         });
         await lead.save();
-        // Create conversation between client and promoteur (use promoteur's user id)
+        // Create conversation between client and promoteur for ALL authenticated client requests
+        // This includes: document access, brochure, appointments, contact forms, etc.
         if (params.clientId) {
-            const promoteurDoc = await Promoteur_1.default.findById(params.promoteurId).populate('user');
-            const promoteurUserId = promoteurDoc?.user?._id?.toString();
-            const participants = [
-                { user: params.clientId, role: 'client' },
-                { user: promoteurUserId || params.promoteurId, role: 'promoteur' },
-            ];
-            const conversation = await RealChatService_1.RealChatService.createConversation(participants);
-            // Log for debugging: created conversation and resolved promoteur user id
-            console.info('[LeadScoring] Created conversation', {
-                conversationId: conversation._id?.toString(),
-                promoteurId: params.promoteurId,
-                promoteurUserId,
-                clientId: params.clientId,
-            });
-            // Add initial message from client
-            await RealChatService_1.RealChatService.addMessage(conversation._id.toString(), params.clientId, params.initialMessage, 'text');
+            try {
+                const promoteurDoc = await Promoteur_1.default.findById(params.promoteurId).populate('user');
+                const promoteurUserId = promoteurDoc?.user?._id?.toString();
+                const participants = [
+                    { user: params.clientId, role: 'client' },
+                    { user: promoteurUserId || params.promoteurId, role: 'promoteur' },
+                ];
+                const conversation = await RealChatService_1.RealChatService.createConversation(participants);
+                // Log for debugging: created conversation and resolved promoteur user id
+                console.info('[LeadScoring] Created conversation for lead', {
+                    conversationId: conversation._id?.toString(),
+                    promoteurId: params.promoteurId,
+                    promoteurUserId,
+                    clientId: params.clientId,
+                    source: params.source,
+                });
+                // Add initial message from client
+                await RealChatService_1.RealChatService.addMessage(conversation._id.toString(), params.clientId, params.initialMessage, 'text');
+            }
+            catch (err) {
+                console.warn('[LeadScoring] Error creating conversation:', err.message);
+                // Don't fail lead creation if conversation fails
+            }
         }
         // Update project stats
         await Project_1.default.findByIdAndUpdate(params.projectId, {
@@ -180,7 +190,7 @@ class LeadScoringService {
         lead.pipeline.push({
             status: newStatus,
             changedAt: new Date(),
-            changedBy: userId,
+            changedBy: new mongoose_1.default.Types.ObjectId(userId),
             notes,
         });
         if (newStatus === 'gagne') {
@@ -198,11 +208,14 @@ class LeadScoringService {
         if (!lead)
             throw new Error('Lead not found');
         const responseTime = (Date.now() - lead.createdAt.getTime()) / (1000 * 60 * 60); // hours
-        lead.responseTime = responseTime;
-        lead.responseSLA = responseTime <= 24; // SLA is 24 hours
-        lead.lastContactDate = new Date();
-        await lead.save();
-        return lead;
+        const responseSLA = responseTime <= 24; // SLA is 24 hours
+        // Use findByIdAndUpdate for atomic operation to avoid conflicts with concurrent updates
+        const updatedLead = await Lead_1.default.findByIdAndUpdate(leadId, {
+            responseTime: responseTime,
+            responseSLA: responseSLA,
+            lastContactDate: new Date(),
+        }, { new: true });
+        return updatedLead;
     }
 }
 exports.LeadScoringService = LeadScoringService;

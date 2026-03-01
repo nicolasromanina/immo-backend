@@ -340,11 +340,11 @@ export const createBoostCheckoutSession = async (req: Request, res: Response) =>
       // Montant custom (en centimes)
       amount = customAmount;
       
-      // Valider le montant (20-5000â‚¬)
+      // Valider le montant (3-5000â‚¬)
       const amountInEuros = amount / 100;
-      if (amountInEuros < 20 || amountInEuros > 5000) {
+      if (amountInEuros < 3 || amountInEuros > 5000) {
         return res.status(400).json({ 
-          message: 'Montant invalide. Le montant doit Ãªtre entre 20â‚¬ et 5000â‚¬' 
+          message: 'Montant invalide. Le montant doit être entre 3 et 5000 EUR' 
         });
       }
       
@@ -1087,12 +1087,13 @@ export const getTokenFromBoostSession = async (req: Request, res: Response) => {
       return res.status(404).json({ message: 'Utilisateur non trouvÃ©' });
     }
 
-    // GÃ©nÃ©rer un JWT token
+    // Générer un JWT token
     const token = jwt.sign(
-      { 
+      {
         id: user._id.toString(),
         email: user.email,
         roles: user.roles,
+        promoteurProfile: user.promoteurProfile,
       },
       getJwtSecret(),
       { expiresIn: (process.env.JWT_EXPIRES_IN || '1d') as jwt.SignOptions['expiresIn'] }

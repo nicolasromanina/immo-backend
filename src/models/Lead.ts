@@ -72,17 +72,24 @@ export interface ILead extends Document {
   responseSLA: boolean; // met SLA or not
   
   // Source
-  source: 'website' | 'whatsapp' | 'referral' | 'direct' | 'other';
+  source: 'contact-form' | 'document-access-request' | 'brochure-request' | 'appointment-request' | 'website' | 'whatsapp' | 'referral' | 'direct' | 'other';
   referralCode?: string;
-  
+
+  // Tags for lead management
+  tags: string[]; // 'not-contacted', 'contacted', 'urgent', 'follow-up', etc.
+
+  // Contact tracking for notifications
+  firstContactDate?: Date; // When promoteur first contacts the lead
+  notContactedReminderSent?: Date; // When 2-day reminder was sent
+
   // Quality flags
   isSerious: boolean;
   flaggedAsNotSerious: boolean;
   flagReason?: string;
-  
+
   // Assignment
   assignedTo?: mongoose.Types.ObjectId; // team member
-  
+
   // Conversion
   converted: boolean;
   conversionDate?: Date;
@@ -172,19 +179,28 @@ const LeadSchema: Schema = new Schema({
   responseTime: { type: Number },
   responseSLA: { type: Boolean, default: true, index: true },
   
-  source: { 
-    type: String, 
-    enum: ['website', 'whatsapp', 'referral', 'direct', 'other'],
-    default: 'website'
+  source: {
+    type: String,
+    enum: ['contact-form', 'document-access-request', 'brochure-request', 'appointment-request', 'website', 'whatsapp', 'referral', 'direct', 'other'],
+    default: 'other'
   },
   referralCode: { type: String },
-  
+
+  tags: {
+    type: [String],
+    default: ['not-contacted'],
+    index: true,
+  },
+
+  firstContactDate: { type: Date },
+  notContactedReminderSent: { type: Date },
+
   isSerious: { type: Boolean, default: true },
   flaggedAsNotSerious: { type: Boolean, default: false },
   flagReason: { type: String },
-  
+
   assignedTo: { type: Schema.Types.ObjectId, ref: 'User', index: true },
-  
+
   converted: { type: Boolean, default: false, index: true },
   conversionDate: { type: Date },
   conversionValue: { type: Number },
@@ -195,5 +211,9 @@ LeadSchema.index({ promoteur: 1, status: 1, score: 1 });
 LeadSchema.index({ project: 1, status: 1 });
 LeadSchema.index({ createdAt: -1 });
 LeadSchema.index({ email: 1 });
+LeadSchema.index({ tags: 1 });
+LeadSchema.index({ source: 1 });
+LeadSchema.index({ promoteur: 1, tags: 1 }); // For filtering leads by promoteur and tags
+LeadSchema.index({ createdAt: 1, tags: 1, notContactedReminderSent: 1 }); // For 2-day reminder job
 
 export default mongoose.model<ILead>('Lead', LeadSchema);

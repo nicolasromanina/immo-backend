@@ -1,9 +1,11 @@
 import BrochureRequest from '../models/BrochureRequest';
 import Project from '../models/Project';
 import Promoteur from '../models/Promoteur';
+import ProjectBrochure from '../models/ProjectBrochure';
 import Lead from '../models/Lead';
 import { NotificationService } from './NotificationService';
 import { WhatsAppService } from './WhatsAppService';
+import { RequestLeadService } from './RequestLeadService';
 
 export class BrochureService {
   /**
@@ -33,7 +35,7 @@ export class BrochureService {
       throw new Error('Brochure already requested in the last 24 hours');
     }
 
-    const request = new BrochureRequest({
+    const request = await BrochureRequest.create({
       project: data.projectId,
       promoteur: project.promoteur,
       client: data.clientId,
@@ -44,8 +46,6 @@ export class BrochureService {
       source: data.source || 'website',
       status: 'pending',
     });
-
-    await request.save();
 
     await NotificationService.create({
       recipient: project.promoteur.toString(),
@@ -61,7 +61,26 @@ export class BrochureService {
 
     // Best effort: do not fail brochure request if lead creation fails
     try {
-      await this.createOrUpdateLead(data, project);
+      const { lead, conversation } = await RequestLeadService.createLeadFromRequest({
+        projectId: data.projectId,
+        promoteurId: project.promoteur.toString(),
+        clientId: data.clientId,
+        firstName: data.firstName,
+        lastName: data.lastName,
+        email: data.email,
+        phone: data.phone,
+        requestType: 'brochure',
+        initialMessage: 'Demande de brochure',
+      });
+
+      // Link lead to brochure request
+      if (lead) {
+        request.lead = lead._id;
+        if (conversation) {
+          request.conversation = conversation._id;
+        }
+        await request.save();
+      }
     } catch (error) {
       console.error('Lead creation from brochure request failed:', error);
     }
@@ -77,15 +96,29 @@ export class BrochureService {
     if (!request) return;
 
     const project = request.project as any;
-    const hasBrochure = project.media?.renderings?.length > 0;
+
+    // Check for uploaded ProjectBrochure first, then fall back to media renderings
+    const projectBrochure = await ProjectBrochure.findOne({ project: project._id });
+    const hasBrochure = projectBrochure || (project.media?.renderings?.length > 0);
 
     if (hasBrochure) {
-      const downloadLink = `/api/brochures/${project._id}/download?token=${this.generateToken()}`;
+      // Use ProjectBrochure download link if available, otherwise use media rendering link
+      const downloadLink = projectBrochure
+        ? `/api/project-brochures/download/${projectBrochure._id}`
+        : `/api/brochures/${project._id}/download?token=${this.generateToken()}`;
 
       request.status = 'sent';
       request.sentAt = new Date();
       request.downloadLink = downloadLink;
+      request.sentVia = 'email'; // Default to email
       await request.save();
+
+      // Track the download in ProjectBrochure if it exists
+      if (projectBrochure) {
+        projectBrochure.totalDownloads = (projectBrochure.totalDownloads || 0) + 1;
+        projectBrochure.lastDownloadedAt = new Date();
+        await projectBrochure.save();
+      }
 
       await NotificationService.create({
         recipient: request.email,
@@ -104,72 +137,6 @@ export class BrochureService {
   private static generateToken(): string {
     return Math.random().toString(36).substring(2, 15) +
            Math.random().toString(36).substring(2, 15);
-  }
-
-  /**
-   * Create or update lead from brochure request
-   */
-  private static async createOrUpdateLead(data: any, project: any) {
-    let actorUserId = data.clientId;
-    if (!actorUserId) {
-      const promoteur = await Promoteur.findById(project.promoteur).select('user');
-      actorUserId = promoteur?.user?.toString();
-    }
-
-    const existingLead = await Lead.findOne({
-      project: project._id,
-      email: data.email,
-    });
-
-    if (existingLead) {
-      return;
-    }
-
-    const lead = new Lead({
-      project: project._id,
-      promoteur: project.promoteur,
-      client: data.clientId || undefined,
-      firstName: data.firstName,
-      lastName: data.lastName,
-      email: data.email,
-      phone: data.phone || '',
-      budget: 0,
-      financingType: 'unknown',
-      timeframe: 'flexible',
-      contactMethod: 'email',
-      status: 'nouveau',
-      source: data.source || 'website',
-      score: 'C',
-      scoreDetails: {
-        budgetMatch: 50,
-        timelineMatch: 50,
-        engagementLevel: 30,
-        profileCompleteness: 50,
-      },
-      initialMessage: 'Demande de brochure',
-      notes: actorUserId ? [{
-        content: 'Lead cree via demande de brochure',
-        addedBy: actorUserId,
-        addedAt: new Date(),
-        isPrivate: false,
-      }] : [],
-      pipeline: actorUserId ? [{
-        status: 'nouveau',
-        changedAt: new Date(),
-        changedBy: actorUserId,
-        notes: 'Demande de brochure',
-      }] : [],
-    });
-
-    await lead.save();
-
-    await Project.findByIdAndUpdate(project._id, {
-      $inc: { totalLeads: 1 },
-    });
-
-    await Promoteur.findByIdAndUpdate(project.promoteur, {
-      $inc: { totalLeadsReceived: 1 },
-    });
   }
 
   /**

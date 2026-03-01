@@ -67,8 +67,15 @@ class AppointmentController {
             const { promoteurId, projectId, leadId, scheduledAt, durationMinutes, type, notes, } = req.body;
             let targetPromoteurId = promoteurId;
             if (!targetPromoteurId) {
-                const promoteur = await Promoteur_1.default.findOne({ user: req.user.id }).select('_id');
-                targetPromoteurId = promoteur?._id?.toString();
+                // For team members, use promoteurProfile from middleware
+                if (req.user.promoteurProfile) {
+                    targetPromoteurId = req.user.promoteurProfile;
+                }
+                else {
+                    // For promoteur owners, find promoteur by user
+                    const promoteur = await Promoteur_1.default.findOne({ user: req.user.id }).select('_id');
+                    targetPromoteurId = promoteur?._id?.toString();
+                }
             }
             if (!targetPromoteurId) {
                 return res.status(400).json({ message: 'promoteurId is required' });
@@ -102,6 +109,48 @@ class AppointmentController {
                 });
             }
             res.status(500).json({ message: 'Server error' });
+        }
+    }
+    /**
+     * Create appointment from public request (with auto lead creation)
+     */
+    static async createAppointmentFromRequest(req, res) {
+        try {
+            const { promoteurId, projectId, firstName, lastName, email, phone, scheduledAt, durationMinutes, type, notes, } = req.body;
+            if (!projectId || !promoteurId || !firstName || !lastName || !email || !scheduledAt || !type) {
+                return res.status(400).json({
+                    message: 'Missing required fields: projectId, promoteurId, firstName, lastName, email, scheduledAt, type',
+                });
+            }
+            const { appointment, lead, conversation } = await AppointmentService_1.AppointmentService.createAppointmentFromRequest({
+                promoteurId,
+                projectId,
+                firstName,
+                lastName,
+                email,
+                phone,
+                scheduledAt: new Date(scheduledAt),
+                durationMinutes: durationMinutes || 30,
+                type,
+                notes,
+                clientId: req.user?.id,
+            });
+            res.status(201).json({
+                success: true,
+                appointment,
+                lead,
+                conversation: conversation ? conversation.toObject() : null,
+            });
+        }
+        catch (error) {
+            console.error('Error creating appointment from request:', error);
+            if (error.message?.includes('not available on this plan')) {
+                return res.status(403).json({
+                    message: 'La prise de rendez-vous n est pas disponible sur votre plan',
+                    upgrade: true,
+                });
+            }
+            res.status(500).json({ message: error.message || 'Server error' });
         }
     }
     /**
@@ -162,12 +211,21 @@ class AppointmentController {
      */
     static async getUpcomingAppointments(req, res) {
         try {
-            const promoteur = await Promoteur_1.default.findOne({ user: req.user.id });
-            if (!promoteur) {
-                return res.status(404).json({ message: 'Promoteur not found' });
+            let promoteurId;
+            // For team members, use promoteurProfile from middleware
+            if (req.user.promoteurProfile) {
+                promoteurId = req.user.promoteurProfile;
+            }
+            else {
+                // For promoteur owners, find promoteur by user
+                const promoteur = await Promoteur_1.default.findOne({ user: req.user.id });
+                if (!promoteur) {
+                    return res.status(404).json({ message: 'Promoteur not found' });
+                }
+                promoteurId = promoteur._id.toString();
             }
             const { days } = req.query;
-            const appointments = await AppointmentService_1.AppointmentService.getUpcomingAppointments(promoteur._id.toString(), days ? parseInt(days) : 7);
+            const appointments = await AppointmentService_1.AppointmentService.getUpcomingAppointments(promoteurId, days ? parseInt(days) : 7);
             res.json({ appointments });
         }
         catch (error) {
